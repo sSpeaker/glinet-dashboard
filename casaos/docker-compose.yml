@@ -1,0 +1,95 @@
+# CasaOS app definition for glinet-dashboard.
+# In CasaOS: App Store -> Custom Install -> Import (top right) -> paste this file -> set GL_PASS -> Install.
+# Put your services.yaml (and icons/, background) into /DATA/AppData/glinet-dashboard/config first;
+# without it the page reports "services.yaml: No such file or directory".
+name: glinet-dashboard
+services:
+  glinet-dashboard:
+    image: sspeaker/glinet-dashboard:latest
+    container_name: glinet-dashboard
+    network_mode: bridge
+    restart: unless-stopped
+    # CasaOS creates the AppData folders as root; with every capability dropped, root can only
+    # write to directories it owns, which is exactly the data folder
+    user: "0:0"
+    ports:
+      - target: 3100
+        published: "3100"
+        protocol: tcp
+    environment:
+      GL_PASS: ""                 # router root password: set it in the app settings in CasaOS
+      GL_USER: root
+      LUCI_PORT: "8080"
+      ADGUARD_PORT: "3000"
+      WAN_INTERFACE: wan
+      POLL_SECONDS: "5"
+      TOP_N: "10"
+      PORT: "3100"
+    volumes:
+      - type: bind
+        source: /DATA/AppData/$AppID/config
+        target: /app/config
+        read_only: true
+      - type: bind
+        source: /DATA/AppData/$AppID/data
+        target: /app/data
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3100/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    x-casaos:
+      envs:
+        - container: GL_PASS
+          description:
+            en_US: GL.iNet router root password (required)
+        - container: GL_USER
+          description:
+            en_US: Router user
+        - container: POLL_SECONDS
+          description:
+            en_US: Poll interval in seconds (5-60)
+      ports:
+        - container: "3100"
+          description:
+            en_US: WebUI port
+      volumes:
+        - container: /app/config
+          description:
+            en_US: Configuration - services.yaml, icons/ and background image (read-only)
+        - container: /app/data
+          description:
+            en_US: Cache - quote of the day and speed test history
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: glinet-dashboard
+  author: sSpeaker
+  developer: sSpeaker
+  category: Networking
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/glinet.png
+  thumbnail: https://cdn.jsdelivr.net/gh/sSpeaker/glinet-dashboard@main/docs/screenshot-dark.jpg
+  screenshot_link:
+    - https://cdn.jsdelivr.net/gh/sSpeaker/glinet-dashboard@main/docs/screenshot-dark.jpg
+    - https://cdn.jsdelivr.net/gh/sSpeaker/glinet-dashboard@main/docs/screenshot-light.jpg
+  tagline:
+    en_US: Live GL.iNet router stats and a homelab start page
+  description:
+    en_US: |
+      Start page with live stats from a GL.iNet router (firmware 4.x): WAN traffic, the Network Quality
+      score, AdGuard Home DNS stats and an on-demand / nightly speed test, next to tiles for your services.
+      Configure it with config/services.yaml; the router root password goes into GL_PASS.
+  title:
+    en_US: GL.iNet Dashboard
+  index: /
+  port_map: "3100"
+  website: https://github.com/sSpeaker/glinet-dashboard
+  repo: https://github.com/sSpeaker/glinet-dashboard
+  support: https://github.com/sSpeaker/glinet-dashboard/issues

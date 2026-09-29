@@ -82,6 +82,28 @@ docker run -d --name glinet-dashboard --restart unless-stopped -p 3100:3100 \
 
 The password is only ever read from the `GL_PASS` environment variable. Never put it in the YAML or the compose file.
 
+### CasaOS
+
+[`casaos/docker-compose.yml`](casaos/docker-compose.yml) installs the dashboard as a regular CasaOS app, with its own
+tile, icon, running status, and start/stop/logs/settings in the CasaOS UI.
+
+1. **Put a config into the app folder**, `/DATA/AppData/glinet-dashboard/config/` (the `services.yaml` plus `icons/` and the background). Use the CasaOS *Files* app, `scp`, or start from the example:
+
+   ```sh
+   sudo mkdir -p /DATA/AppData/glinet-dashboard
+   sudo docker run --rm --entrypoint tar sspeaker/glinet-dashboard -C /app -c config \
+     | sudo tar x -C /DATA/AppData/glinet-dashboard
+   ```
+
+2. **Import the app:** in CasaOS click **+** → **Install a customized app** → **Import** (top right). Paste the contents of [`casaos/docker-compose.yml`](casaos/docker-compose.yml) → **Submit**.
+3. **Set the password:** fill in **GL_PASS** (router root password) → **Install**.
+
+The tile opens `http://<casaos-host>:3100`. Edit `/DATA/AppData/glinet-dashboard/config/services.yaml` in place; changes
+show up without a restart. The cache lives in `/DATA/AppData/glinet-dashboard/data`.
+
+This variant runs as root inside the container, because CasaOS creates the AppData folders as root. It keeps the rest of the
+hardening (read-only filesystem, all capabilities dropped), so it can only write to the data folder it owns.
+
 ## Configuration
 
 Everything lives in `config/services.yaml`; images sit next to it. The example file is commented.
