@@ -2,7 +2,8 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:,">
+<!-- Default tab icon (pulse on the accent colour); page.favicon in the config replaces it -->
+<link rel="icon" id="favicon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f55d4'/%3E%3Cpath d='M5 17h5l3-7 5 13 3-6h6' fill='none' stroke='%23fff' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <script>
 // Theme chosen with the switch (localStorage) wins over page.theme from the config; applied before first paint
 try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
@@ -51,7 +52,7 @@ html { font-size: max(16px, min(1.2vw, 2vh)); }
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 0.875rem/1.45 var(--body); }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 0.875rem/1.45 var(--body); display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
 /* Optional background image (page.background): the ::after veil in the theme colour keeps text readable */
 #backdrop { position: fixed; inset: 0; z-index: -1; background: center / cover no-repeat; }
 #backdrop::after { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: var(--shade, 0.45); }
@@ -59,15 +60,33 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 0.875rem/1.45 v
    cards and inputs keep the theme colours */
 body.bg-dark #backdrop::after { background: #0d1220; }
 body.bg-light #backdrop::after { background: #eef1f6; }
-body.bg-dark :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #theme-toggle) {
+body.bg-dark :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
   --fg: #e6eaf5; --muted: #b4bdd3; --line: rgb(255 255 255 / 0.22); --accent: #7d9bff;
 }
-body.bg-light :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #theme-toggle) {
+body.bg-light :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
   --fg: #16203a; --muted: #4a5470; --line: rgb(22 32 58 / 0.2); --accent: #2f55d4;
 }
 body:is(.bg-dark, .bg-light) :is(header .brand, header .clock) { color: var(--fg); }
+/* Keep text readable over busy/bright parts of the photo: a soft shadow in the opposite tone,
+   and the quote in the main text colour instead of the muted one */
+body.bg-dark :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 0.75rem rgb(0 0 0 / 0.55);
+}
+body.bg-light :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
+  text-shadow: 0 1px 2px rgb(255 255 255 / 0.8), 0 0 0.75rem rgb(255 255 255 / 0.6);
+}
+body:is(.bg-dark, .bg-light) footer q { color: var(--fg); }
+/* Over a photo the quote sits on a small frosted strip, so it stays readable even on snow or sky */
+body:is(.bg-dark, .bg-light) footer { backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+body.bg-dark footer { background: rgb(13 18 32 / 0.55); }
+body.bg-light footer { background: rgb(238 241 246 / 0.6); }
+/* Same strip for the router stats line */
+body:is(.bg-dark, .bg-light) #router-line { padding: 0.3125rem 0.75rem; border-radius: 0.5rem; color: var(--fg); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+body.bg-dark #router-line { background: rgb(13 18 32 / 0.55); }
+body.bg-light #router-line { background: rgb(238 241 246 / 0.6); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.wrap { max-width: 80rem; margin: 0 auto; padding: 1.25rem 1.25rem 1.5rem; display: grid; gap: 1.125rem; }
+.wrap { flex: 1 0 auto; width: 100%; max-width: 80rem; margin: 0 auto; padding: 1.25rem 1.25rem 1rem; display: grid; gap: 1.125rem; align-content: start; }
+.bottom-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1.5rem; padding: 0 0.75rem 0.75rem; }
 
 header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.875rem 2rem; }
 .brand h1 { font: 700 1.875rem/1 var(--display); letter-spacing: -0.02em; margin: 0; }
@@ -122,7 +141,8 @@ section h2::after { content: ""; flex: 1; height: 1px; background: var(--line); 
 
 .empty { margin: 0; color: var(--muted); }
 .cfg-error { margin: 0; padding: 0.5rem 0.75rem; border-radius: 0.625rem; border: 1px solid var(--critical); color: var(--fg); background: var(--surface); font-size: 0.8125rem; }
-footer { margin: 0; color: var(--muted); font-size: 0.8125rem; }
+/* Quote: pinned to the bottom-left corner, level with the photo credit in the bottom-right one */
+footer { flex: 0 1 auto; min-width: 0; margin: 0; padding: 0.35rem 0.75rem; border-radius: 0.5rem; color: var(--muted); font-size: 0.8125rem; line-height: 1.3; }
 footer q { font-style: italic; }
 footer .author { margin-left: 0.5rem; white-space: nowrap; }
 footer .author:not(:empty)::before { content: "— "; }
@@ -146,6 +166,14 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn:disabled { opacity: 0.55; cursor: default; }
+.icon-btn { display: grid; place-items: center; width: 1.375rem; height: 1.375rem; padding: 0; border: 0; border-radius: 0.375rem; background: none; color: var(--muted); cursor: pointer; opacity: 0.7; }
+.icon-btn svg { width: 0.875rem; height: 0.875rem; }
+.icon-btn:hover:not(:disabled) { opacity: 1; color: var(--accent); background: var(--chip); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.icon-btn:disabled { opacity: 0.35; cursor: default; }
+.icon-btn.spin svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .icon-btn.spin svg { animation: none; } }
 .stale::before { content: "!"; display: grid; place-items: center; width: 0.875rem; height: 0.875rem; border-radius: 50%; background: var(--warning); color: #16203a; font: 700 0.625rem var(--body); }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(4.375rem, 1fr)); gap: 0.5rem 0.75rem; }
 .stats.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -161,6 +189,11 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .legend span { display: inline-flex; align-items: center; gap: 0.3125rem; }
 .muted { color: var(--muted); }
 .note { margin: 0; color: var(--muted); font-size: 0.75rem; }
+/* Router stats row, as wide as the cards: router left, DNS upstreams centred, update time right */
+.router-line { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.25rem 1.5rem; }
+.router-line > :nth-child(2) { justify-self: center; }
+.router-line > :nth-child(3) { justify-self: end; }
+@media (max-width: 900px) { .router-line { display: flex; flex-wrap: wrap; justify-content: space-between; } }
 .facts { display: flex; flex-wrap: wrap; gap: 0.125rem 1rem; font-size: 0.75rem; }
 .facts strong { font-weight: 600; }
 
@@ -216,17 +249,35 @@ details th { color: var(--muted); font-weight: 500; }
 #tip .r strong { font-weight: 600; font-variant-numeric: tabular-nums; }
 #tip .r span { color: var(--muted); }
 
-/* Theme switch: small and faint in the bottom-right corner, fully visible on hover/focus */
-#theme-toggle { position: fixed; right: 0.75rem; bottom: 0.75rem; z-index: 5; width: 1.75rem; height: 1.75rem; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); opacity: 0.35; cursor: pointer; transition: opacity .15s; }
+/* Bottom-right corner: photo credit, wallpaper link and theme switch; faint until hovered/focused */
+.corner-wrap { position: relative; margin-left: auto; min-width: 0; }
+#corner { display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; min-width: 0; }
+#bg-credit { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.corner-link { font: 0.6875rem var(--body); color: var(--muted); text-decoration: none; opacity: 0.35; transition: opacity .15s; white-space: nowrap; background: none; border: 0; padding: 0; cursor: pointer; }
+.corner-link[aria-expanded="true"] { opacity: 1; }
+.corner-link:hover, .corner-link:focus-visible { opacity: 1; text-decoration: underline; }
+.corner-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+#theme-toggle { width: 1.75rem; height: 1.75rem; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); opacity: 0.35; cursor: pointer; transition: opacity .15s; }
 #theme-toggle:hover, #theme-toggle:focus-visible { opacity: 1; }
 #theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #theme-toggle svg { width: 1rem; height: 1rem; }
+.wp-pop { position: absolute; right: 0; bottom: calc(100% + 0.5rem); z-index: 6; width: min(26rem, calc(100vw - 1.5rem)); display: grid; gap: 0.5rem; padding: 0.75rem 0.875rem; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 0.75rem; box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 0.25); font-size: 0.8125rem; }
+.wp-pop label { font-weight: 600; }
+.wp-row { display: flex; gap: 0.5rem; }
+.wp-pop .wp-sub { font-weight: 500; color: var(--muted); }
+.wp-pop .wp-sub span { font-weight: 400; }
+.wp-pop input { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: var(--chip); border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.3125rem 0.5rem; outline: none; }
+.wp-pop input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.wp-hint, .wp-msg { margin: 0; color: var(--muted); font-size: 0.75rem; }
+.wp-hint a { color: var(--accent); }
+.wp-msg.error { color: var(--critical); }
+#wp-reset { justify-self: start; }
 /* Speed test result: always one line, result on the left, age on the right */
 .st-line { display: flex; justify-content: space-between; gap: 0.75rem; white-space: nowrap; }
 .st-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .st-when { flex: none; }
 
-@media (prefers-reduced-motion: reduce) { .tile, #theme-toggle { transition: none; } .tile:hover { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tile, #theme-toggle, .corner-link { transition: none; } .tile:hover { transform: none; } }
 </style>
 
 <div id="backdrop" hidden></div>
@@ -255,6 +306,9 @@ details th { color: var(--muted); font-weight: 500; }
           <h3>Internet</h3>
           <span class="stale" data-stale="wan" hidden>stale</span>
           <span class="chip" id="wan-link">–</span>
+          <button type="button" class="icon-btn" id="wan-reconnect" title="Reconnect the WAN to get a new IP (internet drops for a few seconds)" aria-label="Reconnect the WAN to get a new IP">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+          </button>
         </div>
         <div class="stats">
           <div class="stat"><div class="label"><i class="key s1"></i>Download</div><div class="value" id="wan-down">–</div></div>
@@ -266,6 +320,7 @@ details th { color: var(--muted); font-weight: 500; }
           <span><span class="muted">Sent</span> <strong id="wan-tx">–</strong></span>
           <span><span class="muted">WAN up</span> <strong id="wan-uptime">–</strong></span>
         </div>
+        <p class="note" id="wan-msg" role="status" hidden></p>
         <p class="note" id="wan-note" hidden>Totals since the WAN link came up; HW NAT can under-count them.</p>
       </article>
 
@@ -328,7 +383,7 @@ details th { color: var(--muted); font-weight: 500; }
         </div>
       </article>
     </div>
-    <p class="note" id="router-line"></p>
+    <div class="note router-line" id="router-line"><span id="rl-router"></span><span id="rl-dns"></span><span id="rl-updated"></span></div>
   </section>
 
   <section aria-labelledby="services-title">
@@ -345,10 +400,34 @@ details th { color: var(--muted); font-weight: 500; }
     <p class="empty" id="empty" hidden>No service matches this filter.</p>
   </section>
 
-  <footer id="footer" hidden><q id="quote-text"></q><span class="author" id="quote-author"></span><a class="source" id="quote-source" target="_blank" rel="noopener"></a></footer>
 </div>
 <div id="tip" role="tooltip" hidden></div>
-<button type="button" id="theme-toggle"></button>
+<!-- Bottom row: quote on the left, photo credit / wallpaper / theme on the right. It is part of the page flow:
+     at the bottom of the window when the page is short, below the content when it scrolls -->
+<div class="bottom-bar">
+  <footer id="footer" hidden><q id="quote-text"></q><span class="author" id="quote-author"></span><a class="source" id="quote-source" target="_blank" rel="noopener"></a></footer>
+  <div class="corner-wrap">
+    <!-- Wallpaper panel: paste an Unsplash photo link; the collector downloads the photo and its author -->
+    <form class="wp-pop" id="wp-pop" hidden>
+      <label for="wp-url">Wallpaper from Unsplash</label>
+      <input id="wp-url" type="url" placeholder="https://unsplash.com/photos/…" autocomplete="off">
+      <label for="wp-location" class="wp-sub">Location <span>(optional)</span></label>
+      <div class="wp-row">
+        <input id="wp-location" type="text" placeholder="e.g. Vestrahorn, Iceland" maxlength="80" autocomplete="off">
+        <button type="submit" class="btn" id="wp-apply">Apply</button>
+      </div>
+      <p class="wp-hint">Paste the link of a photo page; the photo, its author and (with an Unsplash API key) its location are fetched automatically.
+        <a href="https://unsplash.com/wallpapers/desktop" target="_blank" rel="noopener">Browse wallpapers ↗</a></p>
+      <p class="wp-msg" id="wp-msg" hidden></p>
+      <button type="button" class="btn" id="wp-reset" hidden>Back to the config background</button>
+    </form>
+    <div id="corner">
+      <a class="corner-link" id="bg-credit" target="_blank" rel="noopener" hidden></a>
+      <button type="button" class="corner-link" id="wp-toggle" aria-expanded="false" aria-controls="wp-pop">Wallpaper</button>
+      <button type="button" id="theme-toggle"></button>
+    </div>
+  </div>
+</div>
 
 <script>
 // Service catalogue from config/services.yaml (served as /api/config)
@@ -368,7 +447,7 @@ function render(filter) {
     shown += items.length;
     if (!items.length) return "";
     return `<section class="group"><h3>${esc(g.name)}</h3>${items.map(i => `
-      <a class="tile" href="${esc(i.url)}" target="_blank" rel="noopener" data-addr="${esc(i.addr)}">
+      <a class="tile" href="${esc(i.url)}" data-addr="${esc(i.addr)}">
         <span class="mark${i.icon ? " has-icon" : ""}" aria-hidden="true">${markHtml(i)}</span>
         <span class="name">${esc(i.name)}</span>
         <span class="sub">${esc(i.host)}</span>${i.addr ? `<span class="sr-only">, ${esc(i.addr)}</span>` : ""}
@@ -384,13 +463,11 @@ function markHtml(i) {
   return i.icon_dark ? light + `<img class="icon-dark" src="${esc(i.icon_dark)}" alt="" loading="lazy">` : light;
 }
 
-// Tile tooltip: LAN address and link, shown below the tile on hover or keyboard focus
+// Tile tooltip: only the LAN address (no tooltip without one), shown below the tile on hover or keyboard focus
 function tileTip(tile) {
-  const rows = [];
-  if (tile.dataset.addr) rows.push({ value: tile.dataset.addr, label: "LAN" });
-  rows.push({ value: tile.href.replace(/^https?:\/\//, "").replace(/\/$/, ""), label: "link" });
+  if (!tile.dataset.addr) return hideTip();
   const r = tile.getBoundingClientRect(), pad = 14 * scale();
-  showTip(tile, r.left - pad, r.bottom - pad + 6 * scale(), tile.querySelector(".name").textContent, rows);
+  showTip(tile, r.left - pad, r.bottom - pad + 6 * scale(), "", [{ value: tile.dataset.addr, label: "" }]);
 }
 root.addEventListener("pointerover", e => { const t = e.target.closest(".tile"); if (t && t !== tipOwner) tileTip(t); });
 root.addEventListener("pointerout", e => {
@@ -401,10 +478,13 @@ root.addEventListener("focusin", e => { const t = e.target.closest(".tile"); if 
 root.addEventListener("focusout", () => { if (tipOwner && tipOwner.classList.contains("tile")) hideTip(); });
 
 filterInput.addEventListener("input", () => render(filterInput.value));
-// Enter in the filter opens the first matching service
+// Enter in the filter opens the first matching service in this tab (Cmd/Ctrl+Enter: new tab)
 filterInput.addEventListener("keydown", e => {
   const first = root.querySelector(".tile");
-  if (e.key === "Enter" && filterInput.value.trim() && first) { e.preventDefault(); window.open(first.href, "_blank", "noopener"); }
+  if (e.key !== "Enter" || !filterInput.value.trim() || !first) return;
+  e.preventDefault();
+  if (e.metaKey || e.ctrlKey) window.open(first.href, "_blank", "noopener");
+  else location.href = first.href;
 });
 // "/" jumps to the filter unless the user is typing somewhere (e.g. the Google search box)
 document.addEventListener("keydown", e => {
@@ -412,6 +492,8 @@ document.addEventListener("keydown", e => {
   if (e.key === "/" && !typing) { e.preventDefault(); filterInput.focus(); }
   if (e.key === "Escape" && (e.target === filterInput || !typing)) { filterInput.value = ""; render(""); filterInput.blur(); }
 });
+
+let bgSource = null, bgLocation = "";
 
 // Theme: auto (follows the system) / light / dark. The switch stores a per-browser choice;
 // without one, page.theme from the config applies.
@@ -441,8 +523,13 @@ document.getElementById("theme-toggle").addEventListener("click", () => {
 applyTheme();
 
 // page: header title parts (optionally coloured), browser tab title, background image
+const DEFAULT_FAVICON = document.getElementById("favicon").href;
+
 function applyPage(page) {
   document.title = page.tab_title;
+  const favicon = document.getElementById("favicon");
+  favicon.href = page.favicon || DEFAULT_FAVICON;
+  if (page.favicon) favicon.removeAttribute("type"); else favicon.type = "image/svg+xml";
   configTheme = page.theme || "auto";
   applyTheme();
   document.getElementById("page-title").replaceChildren(...page.title.map(part => {
@@ -456,10 +543,19 @@ function applyPage(page) {
   backdrop.hidden = !bg;
   if (bg) {
     backdrop.style.backgroundImage = `url(${JSON.stringify(bg.image)})`;
+    // cover: keep proportions and crop; contain: whole image with bars; fill: stretch to the window exactly
+    backdrop.style.backgroundSize = { cover: "cover", contain: "contain", fill: "100% 100%" }[bg.fit] || "cover";
     backdrop.style.setProperty("--shade", bg.shade);
     backdrop.style.filter = bg.blur ? `blur(${bg.blur}px)` : "";
     backdrop.style.inset = bg.blur ? `${-2 * bg.blur}px` : "0";  // keep blurred edges off-screen
   }
+  bgSource = bg ? bg.source : null;
+  document.getElementById("wp-reset").hidden = bgSource !== "page";
+  const credit = document.getElementById("bg-credit");
+  bgLocation = (bg && bg.location) || "";
+  credit.hidden = !(bg && (bg.credit || bg.location));
+  credit.textContent = bg ? [`Photo${bg.credit ? `: ${bg.credit}` : ""}`, bg.location].filter(Boolean).join(" · ") : "";
+  if (bg && /^https:\/\//.test(bg.credit_url)) credit.href = bg.credit_url; else credit.removeAttribute("href");
   imageTone(bg, tone => {
     document.body.classList.toggle("bg-dark", tone === "dark");
     document.body.classList.toggle("bg-light", tone === "light");
@@ -601,7 +697,7 @@ function hideTip() { tip.hidden = true; tipOwner = null; }
 
 function showTip(owner, x, y, title, rows) {
   tipOwner = owner;
-  tip.replaceChildren(el("div", "t", title));
+  tip.replaceChildren(...(title ? [el("div", "t", title)] : []));
   for (const r of rows) {
     const row = el("div", "r");
     if (r.key) row.append(el("i", "key " + r.key));
@@ -808,6 +904,7 @@ function renderWan(snap) {
   setText("wan-uptime", w.up === false ? "down" : duration(w.uptime));
   const l = link.data || {}, ip = l.ipv4 && l.ipv4.ip ? l.ipv4.ip.split("/")[0] : null;
   setText("wan-link", [(l.protocol || w.proto || "").toUpperCase(), ip].filter(Boolean).join(" · "));
+  renderReconnect(snap, w, ip);
   $("wan-note").hidden = !(router.data && router.data.netnat_enabled);
   if (rate && Array.isArray(rate.download_list)) {
     lineChart($("wan-chart"), [
@@ -920,17 +1017,17 @@ function dnsUpstreams(snap) {
 function renderRouter(snap) {
   const r = source(snap, "router", snap.interval * 3).data;
   if (!r) return;
-  const parts = [
+  const router = [
     "Router",
     r.cpu_temp != null && `CPU ${r.cpu_temp} °C`,
     r.load && `load ${r.load[0].toFixed(2)}`,
     r.memory_used != null && `memory ${Math.round(r.memory_used * 100)} %`,
     r.clients != null && `${r.clients} clients`,
     r.uptime != null && `up ${duration(r.uptime)}`,
-    dnsUpstreams(snap),
-    `updated ${new Date(snap.now * 1000).toLocaleTimeString("en-GB")}`,
   ];
-  setText("router-line", parts.filter(Boolean).join(" · "));
+  $("rl-router").textContent = router.filter(Boolean).join(" · ");
+  $("rl-dns").textContent = dnsUpstreams(snap) || "";
+  $("rl-updated").textContent = `updated ${new Date(snap.now * 1000).toLocaleTimeString("en-GB")}`;
 }
 
 function setLiveState(status, text) {
@@ -948,6 +1045,85 @@ function renderLive(snap) {
   setLiveState(stale ? "warning" : "good", stale ? "Partial" : "Live");
 }
 
+// --- WAN reconnect: POST /api/wan/reconnect, then follow the WAN until it is back
+let wanReconnect = null;  // { previous, started (server time, s), doneAt }
+function renderReconnect(snap, w, ip) {
+  const btn = $("wan-reconnect"), msg = $("wan-msg");
+  if (!wanReconnect) { msg.hidden = true; btn.disabled = false; btn.classList.remove("spin"); return; }
+  const r = wanReconnect, elapsed = snap.now - r.started;
+  // Done once the interface uptime shows it came up after the request
+  if (!r.doneAt && elapsed > 3 && w.up && w.uptime != null && w.uptime < elapsed) {
+    r.doneAt = snap.now;
+    r.text = !ip ? "WAN is back" : ip !== r.previous ? `New IP: ${ip}` : `Same IP ${ip}: the provider kept it`;
+  }
+  let text = r.text;
+  if (!r.doneAt) text = elapsed > 120 ? "The WAN has not come back yet: check the router" : "Reconnecting…";
+  if (r.doneAt && snap.now - r.doneAt > 60) { wanReconnect = null; return renderReconnect(snap, w, ip); }
+  msg.hidden = false;
+  msg.textContent = text;
+  btn.disabled = !r.doneAt;
+  btn.classList.toggle("spin", !r.doneAt);
+}
+$("wan-reconnect").addEventListener("click", async () => {
+  if (!confirm("Reconnect the WAN now?\n\nInternet drops for everyone for a few seconds. With PPPoE you usually get a new IP.")) return;
+  const btn = $("wan-reconnect"), msg = $("wan-msg");
+  btn.disabled = true;
+  try {
+    const resp = await fetch("api/wan/reconnect", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    wanReconnect = { previous: data.previous_ip, started: data.started };
+  } catch (err) {
+    msg.hidden = false; msg.textContent = `Reconnect failed: ${err.message}`;
+    btn.disabled = false;
+    setTimeout(() => { if (!wanReconnect) msg.hidden = true; }, 10000);
+    return;
+  }
+  refresh();
+});
+
+// --- Wallpaper panel: POST /api/background with an Unsplash photo link, or reset to the config background
+const wpPop = $("wp-pop"), wpToggle = $("wp-toggle"), wpMsg = $("wp-msg");
+function wpOpen(open) {
+  wpPop.hidden = !open;
+  wpToggle.setAttribute("aria-expanded", String(open));
+  if (open) { wpMsg.hidden = true; $("wp-location").value = bgLocation; $("wp-url").focus(); }
+}
+function wpMessage(text, error) { wpMsg.hidden = !text; wpMsg.textContent = text || ""; wpMsg.classList.toggle("error", Boolean(error)); }
+async function wpPost(body) {
+  const resp = await fetch("api/background", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+  return data;
+}
+wpToggle.addEventListener("click", () => wpOpen(wpPop.hidden));
+wpPop.addEventListener("keydown", e => { if (e.key === "Escape") { e.stopPropagation(); wpOpen(false); wpToggle.focus(); } });
+document.addEventListener("click", e => { if (!wpPop.hidden && !wpPop.contains(e.target) && e.target !== wpToggle) wpOpen(false); });
+wpPop.addEventListener("submit", async e => {
+  e.preventDefault();
+  const apply = $("wp-apply"), url = $("wp-url").value.trim();
+  // With a new link, an untouched (pre-filled) location belongs to the old photo: let Unsplash supply the new one
+  let location = $("wp-location").value.trim();
+  if (url && location === bgLocation) location = "";
+  if (!url && bgSource !== "page") { wpMessage("Paste the link of an Unsplash photo page.", true); return; }
+  apply.disabled = true; apply.textContent = "…";
+  wpMessage(url ? "Downloading the photo…" : "Saving the location…");
+  try {
+    const { wallpaper } = await wpPost(url ? { url, location } : { location });
+    $("wp-url").value = "";
+    wpMessage(url ? `Done: photo by ${wallpaper.credit || "an unknown author"}.` : "Location saved.");
+    await loadConfig();
+  } catch (err) {
+    wpMessage(err.message, true);
+  } finally {
+    apply.disabled = false; apply.textContent = "Apply";
+  }
+});
+$("wp-reset").addEventListener("click", async () => {
+  try { await wpPost({ reset: true }); wpMessage("Back to the background from the config."); await loadConfig(); }
+  catch (err) { wpMessage(err.message, true); }
+});
+
 // One refresh chain: every run replaces the pending timer; poll twice a second while a speed test runs
 let refreshTimer;
 async function refresh() {
@@ -960,7 +1136,8 @@ async function refresh() {
     if (lastSnap) setLiveState("critical", "Offline");
   } finally {
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(refresh, speedtestState(lastSnap) === "running" ? 500 : REFRESH_MS);
+    const busy = speedtestState(lastSnap) === "running" || (wanReconnect && !wanReconnect.doneAt);
+    refreshTimer = setTimeout(refresh, busy ? (speedtestState(lastSnap) === "running" ? 500 : 1000) : REFRESH_MS);
   }
 }
 // Re-lay out charts on resize using the cached snapshot

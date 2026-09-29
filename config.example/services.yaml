@@ -11,6 +11,7 @@ page:
   tab_title: Home Lab           # browser tab title
   theme: auto                   # default theme: auto (follows the system), light or dark;
                                 # the switch in the bottom-right corner overrides it per browser
+  # favicon: favicon.png         # tab icon: file in this config folder or an https:// URL (default: built-in pulse icon)
   # Header title: plain text (title: My Home) or a list of parts, each with an optional colour.
   # color: accent (theme colour, adapts to dark mode) or any CSS colour: "#e5534b", tomato, ...
   title:
@@ -21,11 +22,21 @@ page:
   #   image  a file in this config folder (jpg, png, webp, avif, gif) or an https:// URL
   #   shade  0-0.9, veils the image with the theme background so text stays readable (default 0.45)
   #   blur   0-40, blur radius in px (default 0)
+  #   fit    cover (default: keep proportions, crop the overflow), contain (whole image, bars at the edges)
+  #          or fill (stretch to exactly the window width and height)
   #   tone   auto (default), dark or light: brightness of the image; text placed directly on it
   #          (title, clock, headings, quote) is light on dark images and dark on light ones.
   #          auto measures the image; set it explicitly for https:// images
+  #   credit, credit_url, location  optional photo credit (author links to credit_url) and place, bottom-right corner
+  # Or set it from the page: "Wallpaper" in the bottom-right corner takes an Unsplash photo link,
+  # downloads it with its author (and, with UNSPLASH_ACCESS_KEY, its location) and overrides the
+  # image below until you reset it there. shade, blur and fit below still apply.
   background:
-    image: background.jpg   # photo: Marek Piwnicki, Unsplash (unsplash.com/photos/ooxzy4JN6gw)
+    image: background.jpg
+    credit: Marek Piwnicki                     # optional photo credit (a link to credit_url), bottom-right corner
+    credit_url: https://unsplash.com/photos/ooxzy4JN6gw
+    location: Disgrazia, Italy                 # optional, shown after the author
+    fit: cover
     shade: 0
     blur: 0
 
@@ -39,7 +50,7 @@ speedtest:
 
 # Each service:
 #   name  (required)  tile title
-#   url   (required)  opens in a new tab; http:// or https://
+#   url   (required)  opens in the same tab (Cmd/Ctrl-click for a new one); http:// or https://
 #   icon  (optional)  image file in config/icons/ (svg, png, webp, ...) or an https:// URL;
 #                     without it the tile shows `mark`. Free icons: https://github.com/homarr-labs/dashboard-icons
 #   icon_dark (opt.)  variant used with the dark theme, e.g. a white logo instead of a black one

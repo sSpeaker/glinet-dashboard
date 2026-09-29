@@ -18,6 +18,8 @@ services:
       # Router root password, taken from the shell environment or .env; never put it in this file
       GL_PASS: ${GL_PASS:?set GL_PASS to the router root password}
       GL_USER: root
+      # Optional: Unsplash API access key, adds the photo location (and exact author name) to wallpapers set from the page
+      UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
       LUCI_PORT: "8080"
       ADGUARD_PORT: "3000"
       WAN_INTERFACE: wan

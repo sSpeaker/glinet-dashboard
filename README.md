@@ -14,7 +14,10 @@ to tiles for your homelab services. One small container, one port, configured wi
 
 ## Features
 
-- **Internet:** live download/upload rate with a 30-second chart, public IP and protocol, bytes received/sent and WAN uptime.
+- **Internet:**
+  - live download/upload rate with a 30-second chart;
+  - public IP and protocol, bytes received/sent and WAN uptime;
+  - a ↻ button next to the IP re-dials the WAN to get a new IP (after a confirmation).
 - **Network quality:** the same data as the GL.iNet *Network Quality* page:
   - score and level;
   - internet, gateway and DNS latency, jitter;
@@ -27,11 +30,14 @@ to tiles for your homelab services. One small container, one port, configured wi
   - queries, blocked share and average processing time;
   - allowed/blocked per hour for the last 24 h;
   - top queried and top blocked domains.
-- **Services:** grouped tiles with icons, instant filter (`/` to focus, Enter opens the first match), LAN address in the tooltip.
+- **Services:**
+  - grouped tiles with icons that open in the same tab, like a browser start page;
+  - instant filter: `/` to focus, Enter opens the first match, Cmd/Ctrl+Enter opens it in a new tab;
+  - the LAN address shows in the tooltip.
 - **Start page extras:**
-  - Google search box and clock;
-  - quote of the day, downloaded daily and cached for offline use;
-  - optional background image;
+  - Google search box, clock and a tab icon;
+  - quote of the day in the bottom-left corner, downloaded daily and cached for offline use;
+  - background image with the photographer and location in the bottom-right corner: set it in the config, or paste an Unsplash photo link on the page (see [Wallpaper from the page](#wallpaper-from-the-page));
   - light/dark/auto theme with a switch.
 - **Fits one screen** and scales up to fill large displays.
 - **Live configuration:** edits to `services.yaml` show up within 30 seconds, without a restart or rebuild. Mistakes are reported on the page while the last valid version keeps working.
@@ -116,11 +122,16 @@ page:
     - text: ".lab"
       color: accent              # accent (theme colour), "#e5534b", tomato, ...
   theme: auto                    # auto | light | dark (the on-page switch overrides it per browser)
+  favicon: favicon.png           # optional tab icon: file in config/ or an https:// URL
   background:                    # optional
     image: background.jpg        # file in config/ or an https:// URL
     shade: 0.45                  # 0-0.9, veil in the theme colour
     blur: 0                      # 0-40 px
+    fit: cover                   # cover (crop) | contain (bars) | fill (stretch to the window)
     tone: auto                   # auto | dark | light: brightness of the image, for readable text
+    credit: Jane Doe             # optional photo credit, links to credit_url (bottom-right corner)
+    credit_url: https://unsplash.com/photos/...
+    location: Vestrahorn, Iceland  # optional, shown after the author
 
 network:
   subnet: 192.168.8.0/24         # shown under the title
@@ -134,7 +145,7 @@ groups:
   - name: Media
     services:
       - name: Plex
-        url: https://plex.example.com      # opens in a new tab
+        url: https://plex.example.com      # opens in the same tab
         host: plex.example.com             # second line of the tile
         addr: 192.168.8.20:32400           # tooltip + searchable
         icon: plex.svg                     # file in config/icons/ or an https:// URL
@@ -145,12 +156,29 @@ groups:
 **Icons:** the example ships icons from [dashboard-icons](https://github.com/homarr-labs/dashboard-icons). Find more at
 `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/<name>.svg` and save them into `config/icons/`.
 
+### Wallpaper from the page
+
+Click **Wallpaper** in the bottom-right corner and paste the link of an Unsplash photo page
+(`https://unsplash.com/photos/...`; [browse desktop wallpapers](https://unsplash.com/wallpapers/desktop)).
+
+- **What happens:** the collector downloads the photo at 3840 px into `/app/data/wallpapers` and credits the photographer, with a link to the photo.
+- **Location:** set `UNSPLASH_ACCESS_KEY` (a free key, see below) and the collector also fills in where the photo was taken, plus the exact author name. The optional *Location* field overrides it or adds a location by hand.
+- **Priority:** the page wallpaper replaces `page.background.image` until you click **Back to the config background**; `shade`, `blur` and `fit` from the config still apply.
+- **Limits:** Unsplash+ (paid) photos cannot be downloaded. Only unsplash.com links are accepted; use the config for images from anywhere else.
+
+To get a key:
+
+1. Sign up at [unsplash.com/developers](https://unsplash.com/developers).
+2. Create a *New Application*.
+3. Copy its **Access Key** (the free demo tier allows 50 requests per hour).
+
 ### Environment variables
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `GL_PASS` | *(required)* | Router `root` password |
 | `GL_USER` | `root` | Router user |
+| `UNSPLASH_ACCESS_KEY` | *(empty)* | Optional [Unsplash API](https://unsplash.com/developers) access key: wallpapers set from the page get the photo location and the exact author name |
 | `GL_HOST` | `network.router` from the config, else `192.168.8.1` | Router address override |
 | `LUCI_PORT` | `8080` | LuCI port (WAN counters) |
 | `ADGUARD_PORT` | `3000` | AdGuard Home port on the router |
@@ -173,9 +201,13 @@ The page is a single static HTML file served by the same process.
 | WAN byte counters, uptime | LuCI ubus: `network.interface dump`, `luci-rpc getNetworkDevices` |
 | DNS | AdGuard Home `:3000/control/stats` (AdGuard runs with `--glinet` and accepts the GL session cookie) |
 | Quote of the day | [ZenQuotes](https://zenquotes.io/), [FavQs](https://favqs.com/) as backup; cached in `/app/data` |
+| WAN reconnect (↻) | LuCI ubus `file.exec` of `/sbin/ifup <wan>`, the same as the *Restart* button of an interface in LuCI |
+| Wallpaper from the page | Unsplash download link (author from its file name) or, with `UNSPLASH_ACCESS_KEY`, the Unsplash API (author and location); stored in `/app/data/wallpapers` |
 
 Endpoints: `GET /api/status`, `GET /api/config`, `GET /api/quote`, `GET /assets/…` (images from the config folder),
-`POST /api/speedtest` with `{"enable": true|false}`.
+`POST /api/speedtest` with `{"enable": true|false}`, `POST /api/wan/reconnect` with `{}`,
+`POST /api/background` with `{"url": "https://unsplash.com/photos/...", "location": "..."}`, `{"location": "..."}` or `{"reset": true}`,
+`GET /media/…` (the wallpaper set from the page).
 
 Notes:
 
@@ -185,10 +217,13 @@ Notes:
 
 ## Security
 
-- **Router access:** all calls are read-only. The one exception is starting/stopping the speed test, which uses the same call as the GL UI button and changes no settings.
+- **Router access:** all calls are read-only, with two exceptions, and neither changes any setting:
+  - starting/stopping the speed test uses the same call as the GL UI button;
+  - the WAN reconnect runs `ifup` like LuCI's interface *Restart*.
 - **Safe to leave running:** failed logins back off exponentially (15 s up to 10 min), so a wrong password cannot trigger the router's brute-force lockout.
 - **No authentication on the dashboard itself.** Keep it on your LAN or VPN, for example behind a reverse proxy with an internal-only DNS name, and do not expose it to the internet.
-- **Speed test endpoint:** `POST /api/speedtest` only accepts `Content-Type: application/json`, which blocks cross-site form posts. Starts are limited to one per minute.
+- **Action endpoints:** all `POST` endpoints only accept `Content-Type: application/json`, which blocks cross-site form posts. Speed test starts and WAN reconnects are limited to one per minute, and the page asks before reconnecting.
+- **Wallpaper downloads:** the collector only fetches unsplash.com / images.unsplash.com for wallpapers, so it cannot be used to reach arbitrary or internal URLs. `UNSPLASH_ACCESS_KEY` is read from the environment like `GL_PASS`.
 - **Container hardening:** read-only root filesystem, all capabilities dropped, runs as an unprivileged user. SVG assets are served with a CSP that blocks scripts.
 
 ## Development
@@ -203,7 +238,7 @@ The page is plain HTML/CSS/JS in `index.html`; `collector.py` is the whole backe
 ## Credits
 
 - **Icons:** [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons), Apache-2.0; logos are trademarks of their owners.
-- **Background photo:** [Marek Piwnicki on Unsplash](https://unsplash.com/photos/ooxzy4JN6gw).
+- **Background photo:** [Marek Piwnicki on Unsplash](https://unsplash.com/photos/ooxzy4JN6gw). Wallpapers set from the page credit their photographers on the page.
 - **Quotes:** inspirational quotes provided by [ZenQuotes API](https://zenquotes.io/); backup source [FavQs](https://favqs.com/).
 - **Not affiliated with GL.iNet.**
 

@@ -10,6 +10,9 @@ and serves them next to the start page:
   GET /api/quote   -> quote of the day (ZenQuotes, FavQs as backup), cached on disk
   GET /api/status  -> cached snapshot {"now", "interval", "sources": {name: {data, updated, error}}}
   POST /api/speedtest {"enable": true|false} -> start/stop the router speed test (network-quality.set_speedtest)
+  POST /api/background {"url": "https://unsplash.com/photos/..."} | {"reset": true} -> wallpaper set from the page
+  POST /api/wan/reconnect {} -> re-dial the WAN (LuCI interface "Restart": /sbin/ifup <wan>)
+  GET /media/...   -> the downloaded wallpaper
 
 Sources (all read-only):
   router   GL RPC   /rpc  system.get_status             CPU, memory, load, uptime, WAN online
@@ -19,6 +22,7 @@ Sources (all read-only):
                                luci-rpc getNetworkDevices  WAN byte counters
   dns      AdGuard  :3000/control/stats, /control/status  (GL sid sent as the Admin-Token cookie)
 """
+import copy
 import hashlib
 import json
 import logging
@@ -31,7 +35,8 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 import websocket
 import yaml
@@ -98,9 +103,17 @@ def normalize_page(page):
             "shade": number(background.get("shade", 0.45), "page.background.shade", 0, 0.9),
             "blur": number(background.get("blur", 0), "page.background.blur", 0, 40),
             "tone": str(background.get("tone") or "auto"),
+            "fit": str(background.get("fit") or "cover"),
+            "credit": str(background.get("credit") or ""),
+            "credit_url": str(background.get("credit_url") or ""),
+            "location": str(background.get("location") or ""),
         }
+        if background["credit_url"] and not background["credit_url"].startswith("https://"):
+            raise ValueError("page.background.credit_url must start with https://")
         if background["tone"] not in ("auto", "dark", "light"):
             raise ValueError("page.background.tone must be auto, dark or light")
+        if background["fit"] not in ("cover", "contain", "fill"):
+            raise ValueError("page.background.fit must be cover, contain or fill")
     theme = str(page.get("theme") or "auto")
     if theme not in ("auto", "light", "dark"):
         raise ValueError("page.theme must be auto, light or dark")
@@ -108,6 +121,7 @@ def normalize_page(page):
         "title": parts,
         "tab_title": str(page.get("tab_title") or "".join(part["text"] for part in parts)),
         "theme": theme,
+        "favicon": asset_url(page["favicon"], "page.favicon") if page.get("favicon") else None,
         "background": background or None,
     }
 
@@ -706,9 +720,245 @@ class SpeedtestTimes:
 
 STATE = State()
 GL = GLSession()
+LUCI = LuciSession()
 SPEEDTEST = Speedtest(GL, STATE)
+
+
+class WanReconnect:
+    """Re-dials the WAN, the same as the "Restart" button of an interface in LuCI.
+
+    LuCI runs /sbin/ifup <interface> through ubus file.exec (its ACL allows exactly that);
+    on an interface that is up, ifup takes it down and brings it back, so PPPoE dials again
+    and usually receives a new IP. No settings change. Internet drops for a few seconds,
+    so the page asks for confirmation and one reconnect per COOLDOWN is allowed.
+    """
+
+    COOLDOWN = 60
+
+    def __init__(self, luci, state):
+        self._luci = luci
+        self._state = state
+        self._lock = threading.Lock()
+        self._last = 0.0
+
+    def run(self):
+        if not re.fullmatch(r"[\w.-]+", WAN_INTERFACE):
+            raise ValueError(f"invalid WAN_INTERFACE {WAN_INTERFACE!r}")
+        with self._lock:
+            wait = self._last + self.COOLDOWN - time.monotonic()
+            if wait > 0:
+                raise Conflict(f"the WAN was reconnected a moment ago, try again in {wait:.0f} s")
+            self._last = time.monotonic()
+        ipv4 = (self._state.data("link") or {}).get("ipv4") or {}
+        previous = str(ipv4.get("ip") or "").split("/")[0] or None
+        try:
+            result = self._luci.call("file", "exec", {"command": "/sbin/ifup", "params": [WAN_INTERFACE]}) or {}
+        except Exception:
+            with self._lock:
+                self._last = 0.0  # a failed call should not block a retry
+            raise
+        if result.get("code") not in (None, 0):
+            raise RuntimeError(f"ifup {WAN_INTERFACE} failed: {(result.get('stderr') or '').strip() or result.get('code')}")
+        LOG.info("WAN reconnect: ifup %s (IP before: %s)", WAN_INTERFACE, previous or "unknown")
+        return {"previous_ip": previous, "started": time.time()}
 QUOTES = QuoteOfTheDay(Path(os.environ.get("QUOTE_CACHE", ROOT / "data" / "quotes.json")))
 SPEEDTEST_TIMES = SpeedtestTimes(ROOT / "data" / "speedtest.json")
+WAN_RECONNECT = WanReconnect(LUCI, STATE)
+
+
+class NoRedirect(HTTPRedirectHandler):
+    """Lets us read the Location header instead of downloading the full-size original."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+class Wallpaper:
+    """Background set from the page by pasting an Unsplash photo link.
+
+    Only unsplash.com photo pages are accepted, so the collector never fetches arbitrary URLs.
+    The photo is downloaded (resized to 2560 px) into data/wallpapers/ and served from there.
+    With UNSPLASH_ACCESS_KEY set, the Unsplash API supplies the exact author name and the photo
+    location; without a key (or if the API fails, e.g. rate limit) the author is taken from
+    Unsplash's download file name ("<author>-<id>-unsplash.jpg") and there is no location.
+    It overrides page.background.image from the config until it is reset.
+    """
+
+    WIDTH = 3840              # standard 4K width, independent of the screen that set it
+    MAX_BYTES = 25 * 1024 * 1024
+    MIN_INTERVAL = 10
+    UA = "Mozilla/5.0 (compatible; glinet-dashboard/1.0)"
+
+    def __init__(self, folder):
+        self.folder = folder
+        self.state_path = folder.parent / "background.json"
+        self._lock = threading.Lock()
+        self._last_change = 0.0
+        try:
+            self._current = json.loads(self.state_path.read_text(encoding="utf-8"))
+            if not (self.folder / self._current["file"]).is_file():
+                self._current = None
+        except (OSError, ValueError, KeyError, TypeError):
+            self._current = None
+
+    def current(self):
+        with self._lock:
+            return dict(self._current) if self._current else None
+
+    @staticmethod
+    def photo_id(url):
+        """Photo id from any unsplash.com photo page link, including localized ones (/de/fotos/...)."""
+        parts = urlsplit(str(url).strip())
+        if parts.scheme != "https" or parts.hostname not in ("unsplash.com", "www.unsplash.com"):
+            raise ValueError("paste the link of an Unsplash photo page, e.g. https://unsplash.com/photos/...")
+        segment = parts.path.rstrip("/").rsplit("/", 1)[-1]
+        # Photo ids are 11 characters; page links append them to a slug: "snow-covered-mountain-ooxzy4JN6gw"
+        if len(segment) >= 11 and re.fullmatch(r"[A-Za-z0-9_-]{11}", segment[-11:]) and (len(segment) == 11 or segment[-12] == "-"):
+            return segment[-11:]
+        raise ValueError("this does not look like an Unsplash photo link (https://unsplash.com/photos/...)")
+
+    def set(self, url, location=""):
+        photo = self.photo_id(url)
+        with self._lock:
+            if time.monotonic() - self._last_change < self.MIN_INTERVAL:
+                raise Conflict("the wallpaper was changed a moment ago, try again in a few seconds")
+            self._last_change = time.monotonic()
+        details = None
+        key = os.environ.get("UNSPLASH_ACCESS_KEY", "").strip()
+        if key:
+            try:
+                details = self._from_api(photo, key)
+            except ValueError:
+                raise
+            except Exception as exc:  # rate limit, bad key, network: the keyless way still works
+                LOG.warning("Unsplash API: %s; falling back to the download link", exc)
+        if details is None:
+            details = self._from_download_link(photo)
+        author, api_location, image_url = details
+        location = location or api_location[:80]
+        with urlopen(Request(image_url, headers={"User-Agent": self.UA}), timeout=30) as resp:
+            if not resp.headers.get("Content-Type", "").startswith("image/"):
+                raise RuntimeError("the Unsplash CDN did not return an image")
+            data = resp.read(self.MAX_BYTES + 1)
+        if len(data) > self.MAX_BYTES:
+            raise RuntimeError("the image is larger than 25 MB")
+        self.folder.mkdir(parents=True, exist_ok=True)
+        name = f"{photo}.jpg"
+        (self.folder / name).write_bytes(data)
+        state = {"file": name, "id": photo, "set_at": time.time(), "credit": author,
+                 "credit_url": f"https://unsplash.com/photos/{photo}", "location": clean_location(location)}
+        tmp = self.state_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state), encoding="utf-8")
+        tmp.replace(self.state_path)
+        with self._lock:
+            self._current = state
+        self._cleanup(keep=name)
+        LOG.info("wallpaper set from the page: Unsplash %s by %s (%d KB)", photo, author or "unknown", len(data) // 1024)
+        return state
+
+    def _from_api(self, photo, key):
+        """(author, location, image URL) from api.unsplash.com; ValueError if the photo does not exist."""
+        headers = {"Authorization": f"Client-ID {key}", "Accept-Version": "v1", "User-Agent": self.UA}
+        try:
+            with urlopen(Request(f"https://api.unsplash.com/photos/{photo}", headers=headers), timeout=15) as resp:
+                data = json.load(resp)
+        except HTTPError as exc:
+            if exc.code == 404:
+                raise ValueError("this photo does not exist on Unsplash") from None
+            raise RuntimeError(f"HTTP {exc.code} {exc.read(200).decode(errors='replace').strip()}") from None
+        if data.get("premium") or data.get("plus"):
+            raise ValueError("this is an Unsplash+ photo, which is not free to download")
+        place = data.get("location") or {}
+        location = place.get("name") or ", ".join(p for p in (place.get("city"), place.get("country")) if p)
+        # Counts the download for the photographer, as Unsplash asks; failures do not matter
+        try:
+            urlopen(Request(data["links"]["download_location"], headers=headers), timeout=10).close()
+        except Exception:
+            pass
+        return (data.get("user") or {}).get("name") or "", location or "", self._sized(data["urls"]["raw"])
+
+    def _from_download_link(self, photo):
+        """(author, "", image URL) without an API key: the download endpoint redirects to the image CDN
+        and its dl= parameter names the author ("marek-piwnicki-<id>-unsplash.jpg")."""
+        try:
+            build_opener(NoRedirect).open(Request(f"https://unsplash.com/photos/{photo}/download?force=true",
+                                                  headers={"User-Agent": self.UA}), timeout=15)
+            raise RuntimeError("Unsplash did not return the photo")
+        except HTTPError as exc:
+            location = exc.headers.get("Location") if exc.code in (301, 302, 303, 307, 308) else None
+            if not location:
+                raise RuntimeError(f"Unsplash refused the download (HTTP {exc.code}); Unsplash+ photos are not free") from None
+        cdn = urlsplit(location)
+        if cdn.scheme != "https" or cdn.hostname != "images.unsplash.com":
+            raise RuntimeError("Unsplash did not return a free photo download (Unsplash+ photos need a subscription)")
+        match = re.fullmatch(rf"(.+)-{re.escape(photo)}-unsplash\.jpg", parse_qs(cdn.query).get("dl", [""])[0])
+        author = " ".join(word.capitalize() for word in match[1].split("-")) if match else ""
+        return author, "", self._sized(location)
+
+    def _sized(self, url):
+        """The image CDN URL resized to WIDTH px as JPEG (Unsplash's imgix parameters)."""
+        parts = urlsplit(url)
+        if parts.scheme != "https" or parts.hostname != "images.unsplash.com":
+            raise RuntimeError("Unsplash returned an unexpected image address")
+        query = {k: v[0] for k, v in parse_qs(parts.query).items() if k != "dl"}
+        query.update(w=str(self.WIDTH), q="80", fm="jpg")
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
+
+    def set_location(self, location):
+        """Change only the location of the current page wallpaper."""
+        with self._lock:
+            if not self._current:
+                raise Conflict("no wallpaper set from the page: paste a photo link first")
+            self._current = {**self._current, "location": clean_location(location)}
+            state = dict(self._current)
+        tmp = self.state_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state), encoding="utf-8")
+        tmp.replace(self.state_path)
+        return state
+
+    def reset(self):
+        with self._lock:
+            self._current = None
+        self.state_path.unlink(missing_ok=True)
+        self._cleanup(keep=None)
+        LOG.info("wallpaper reset to the config background")
+
+    def _cleanup(self, keep):
+        for old in self.folder.glob("*.jpg") if self.folder.is_dir() else []:
+            if old.name != keep:
+                old.unlink(missing_ok=True)
+
+
+def clean_location(value):
+    value = " ".join(str(value or "").split())
+    if len(value) > 80:
+        raise ValueError("the location is too long (80 characters max)")
+    return value
+
+
+WALLPAPER = Wallpaper(ROOT / "data" / "wallpapers")
+
+
+def site_config():
+    """services.yaml, with a wallpaper set from the page replacing page.background.image."""
+    result = SITE.get()
+    wallpaper = WALLPAPER.current()
+    if not result["config"]:
+        return result
+    result = {**result, "config": copy.deepcopy(result["config"])}
+    page = result["config"]["page"]
+    configured = page.get("background")
+    if wallpaper:
+        background = dict(configured or {"shade": 0.45, "blur": 0})
+        # Older saves stored "Author / Unsplash"; the credit is a link to the photo, so the name is enough
+        credit = str(wallpaper.get("credit") or "").removesuffix(" / Unsplash").removesuffix("Unsplash").strip()
+        background.update(image=f"media/{wallpaper['file']}?v={int(wallpaper['set_at'])}", tone="auto",
+                          credit=credit, credit_url=wallpaper["credit_url"],
+                          location=wallpaper.get("location") or "", source="page")
+        page["background"] = background
+    elif configured:
+        page["background"] = {**configured, "source": "config"}
+    return result
 
 
 class SpeedtestSchedule:
@@ -818,7 +1068,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/status":
             self._send(200, STATE.snapshot().encode(), "application/json")
         elif path == "/api/config":
-            self._json(200, SITE.get())
+            self._json(200, site_config())
+        elif path.startswith("/media/"):
+            name = path[len("/media/"):]
+            file = WALLPAPER.folder / name
+            if re.fullmatch(r"[\w-]+\.jpg", name) and file.is_file():
+                self._send(200, file.read_bytes(), "image/jpeg", cache="public, max-age=86400")
+            else:
+                self.send_error(404)
         elif path == "/api/quote":
             self._json(200, QUOTES.current())
         elif path.startswith("/assets/"):
@@ -828,20 +1085,43 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def do_POST(self):
-        if self.path.split("?", 1)[0] != "/api/speedtest":
-            self.send_error(404)
-            return
-        # A JSON content type forces a CORS preflight (which this server never approves),
-        # so other websites cannot trigger the speed test from a visitor's browser.
+    def _read_json(self):
+        """JSON body of a POST; None unless it was sent as application/json.
+
+        A JSON content type forces a CORS preflight (which this server never approves),
+        so other websites cannot trigger these actions from a visitor's browser.
+        """
         if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
             self._json(415, {"error": "Content-Type must be application/json"})
-            return
+            return None
         try:
-            length = min(int(self.headers.get("Content-Length") or 0), 1024)
-            enable = json.loads(self.rfile.read(length) or b"{}").get("enable")
-        except (ValueError, AttributeError):
-            enable = None
+            length = min(int(self.headers.get("Content-Length") or 0), 4096)
+            body = json.loads(self.rfile.read(length) or b"{}")
+            return body if isinstance(body, dict) else {}
+        except ValueError:
+            return {}
+
+    def do_POST(self):
+        path = self.path.split("?", 1)[0]
+        if path not in ("/api/speedtest", "/api/background", "/api/wan/reconnect"):
+            self.send_error(404)
+            return
+        body = self._read_json()
+        if body is None:
+            return
+        if path == "/api/background":
+            self._background(body)
+            return
+        if path == "/api/wan/reconnect":
+            try:
+                self._json(200, {"ok": True, **WAN_RECONNECT.run()})
+            except Conflict as exc:
+                self._json(409, {"error": str(exc)})
+            except Exception as exc:  # router unreachable or LuCI refused
+                LOG.warning("WAN reconnect: %s", exc)
+                self._json(502, {"error": f"router: {exc}"})
+            return
+        enable = body.get("enable")
         if not isinstance(enable, bool):
             self._json(400, {"error": "body must be {\"enable\": true} or {\"enable\": false}"})
             return
@@ -853,6 +1133,27 @@ class Handler(BaseHTTPRequestHandler):
             LOG.warning("speed test: %s", exc)
             self._json(502, {"error": f"router: {exc}"})
 
+    def _background(self, body):
+        if body.get("reset") is True:
+            WALLPAPER.reset()
+            self._json(200, {"ok": True})
+            return
+        url, location = body.get("url"), body.get("location", "")
+        if not isinstance(location, str) or (url is not None and not isinstance(url, str)) or (not url and "location" not in body):
+            self._json(400, {"error": "body must be {\"url\": \"https://unsplash.com/photos/...\", \"location\": \"...\"}, "
+                                      "{\"location\": \"...\"} or {\"reset\": true}"})
+            return
+        try:
+            wallpaper = WALLPAPER.set(url, location) if url else WALLPAPER.set_location(location)
+            self._json(200, {"ok": True, "wallpaper": wallpaper})
+        except ValueError as exc:
+            self._json(400, {"error": str(exc)})
+        except Conflict as exc:
+            self._json(409, {"error": str(exc)})
+        except Exception as exc:  # Unsplash unreachable, refused or returned something unexpected
+            LOG.warning("wallpaper: %s", exc)
+            self._json(502, {"error": str(exc)})
+
     def log_message(self, fmt, *args):
         pass  # keep the container log for router problems
 
@@ -860,8 +1161,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     if not os.environ.get("GL_PASS"):
         raise SystemExit("GL_PASS is not set")
-    luci = LuciSession()
-    threading.Thread(target=poll_loop, args=(GL, luci, STATE), name="poll", daemon=True).start()
+    threading.Thread(target=poll_loop, args=(GL, LUCI, STATE), name="poll", daemon=True).start()
     threading.Thread(target=stream_loop, args=(GL, STATE), name="stream", daemon=True).start()
     threading.Thread(target=QUOTES.loop, name="quotes", daemon=True).start()
     threading.Thread(target=SCHEDULE.loop, name="schedule", daemon=True).start()
