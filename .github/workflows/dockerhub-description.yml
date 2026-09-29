@@ -1,0 +1,28 @@
+# Keeps the Docker Hub page (overview + short description) in sync with README.md.
+# Needs the repository secret DOCKERHUB_TOKEN: a Docker Hub personal access token with
+# the "Read, Write, Delete" scope (updating a repository description requires it).
+name: Docker Hub description
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - docs/**
+  workflow_dispatch:
+
+jobs:
+  dockerhub-description:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: peter-evans/dockerhub-description@v5
+        with:
+          username: sspeaker
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: sspeaker/glinet-dashboard
+          short-description: "Start page with live GL.iNet router stats: WAN, network quality, AdGuard DNS, speed test"
+          readme-filepath: README.md
+          # Relative links (docs/screenshot-*.jpg, LICENSE) become absolute GitHub URLs on Docker Hub
+          enable-url-completion: true
