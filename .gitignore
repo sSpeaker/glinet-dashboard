@@ -1,0 +1,10 @@
+# Secrets: the router password is only ever passed as the GL_PASS environment variable
+.env
+password
+
+# Your own configuration (copy config.example to config); only the example is published
+config/
+
+__pycache__/
+*.pyc
+.DS_Store

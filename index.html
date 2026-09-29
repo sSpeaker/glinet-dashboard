@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<script>
+// Theme chosen with the switch (localStorage) wins over page.theme from the config; applied before first paint
+try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<title>Start</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* One-screen layout: header (brand, Google search, clock) · compact live network cards · service groups as columns.
+   All sizes are in rem and the root size follows the window, so the page scales up to fill large screens. */
+html { font-size: max(16px, min(1.2vw, 2vh)); }
+:root {
+  --bg: #eef1f6;
+  --surface: #ffffff;
+  --line: #d6dce8;
+  --fg: #16203a;
+  --muted: #5d6781;
+  --accent: #2f55d4;
+  --accent-soft: #e3e9fb;
+  --chip: #f2f4f9;
+  /* Data series (validated against --surface in both modes): 1 = download / allowed, 2 = upload / blocked */
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  /* Status palette: fixed, never used for series */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+  --display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1220; --surface: #151c2e; --line: #26304a; --fg: #e6eaf5;
+    --muted: #8e98b3; --accent: #7d9bff; --accent-soft: #1c2748; --chip: #1b2338;
+    --s1: #3987e5; --s2: #d95926;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1220; --surface: #151c2e; --line: #26304a; --fg: #e6eaf5;
+  --muted: #8e98b3; --accent: #7d9bff; --accent-soft: #1c2748; --chip: #1b2338;
+  --s1: #3987e5; --s2: #d95926;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 0.875rem/1.45 var(--body); }
+/* Optional background image (page.background): the ::after veil in the theme colour keeps text readable */
+#backdrop { position: fixed; inset: 0; z-index: -1; background: center / cover no-repeat; }
+#backdrop::after { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: var(--shade, 0.45); }
+/* Text placed directly on the image follows the image's tone (bg-dark / bg-light on <body>), not the theme;
+   cards and inputs keep the theme colours */
+body.bg-dark #backdrop::after { background: #0d1220; }
+body.bg-light #backdrop::after { background: #eef1f6; }
+body.bg-dark :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #theme-toggle) {
+  --fg: #e6eaf5; --muted: #b4bdd3; --line: rgb(255 255 255 / 0.22); --accent: #7d9bff;
+}
+body.bg-light :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #theme-toggle) {
+  --fg: #16203a; --muted: #4a5470; --line: rgb(22 32 58 / 0.2); --accent: #2f55d4;
+}
+body:is(.bg-dark, .bg-light) :is(header .brand, header .clock) { color: var(--fg); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.wrap { max-width: 80rem; margin: 0 auto; padding: 1.25rem 1.25rem 1.5rem; display: grid; gap: 1.125rem; }
+
+header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.875rem 2rem; }
+.brand h1 { font: 700 1.875rem/1 var(--display); letter-spacing: -0.02em; margin: 0; }
+.brand h1 { min-height: 1em; }
+.brand h1 .accent { color: var(--accent); }
+.brand p { margin: 0.375rem 0 0; color: var(--muted); font: 0.75rem var(--mono); }
+.clock { text-align: right; font-variant-numeric: tabular-nums; }
+.clock .time { font: 500 1.75rem/1 var(--display); }
+.clock .date { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
+@media (max-width: 760px) { header { grid-template-columns: 1fr auto; } .search { grid-column: 1 / -1; grid-row: 2; } }
+
+.search, .filter { display: flex; align-items: center; gap: 0.625rem; background: var(--surface); border: 1px solid var(--line); border-radius: 0.625rem; }
+.search { justify-self: center; width: min(40rem, 100%); height: 2.875rem; padding: 0 1rem; }
+.filter { flex: none; width: min(16.25rem, 50vw); height: 2rem; padding: 0 0.625rem; }
+.search svg, .filter svg { flex: none; color: var(--muted); }
+.search svg { width: 1.125rem; height: 1.125rem; }
+.filter svg { width: 0.875rem; height: 0.875rem; }
+.search input, .filter input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--fg); font: inherit; outline: none; }
+.search input { font-size: 1rem; }
+.filter input { font-size: 0.8125rem; }
+.filter kbd { font: 0.6875rem var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 0.3125rem; padding: 0 0.3125rem; }
+.search:focus-within, .filter:focus-within { border-color: var(--accent); box-shadow: 0 0 0 0.1875rem var(--accent-soft); }
+
+section { display: grid; gap: 0.625rem; }
+.section-head { display: flex; align-items: center; gap: 0.75rem; }
+section h2 { flex: 1; margin: 0; font: 600 0.75rem/1 var(--body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 0.625rem; }
+section h2::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* Services: one column per group, compact two-line tiles */
+#groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(13.125rem, 1fr)); gap: 1rem 0.75rem; align-items: start; }
+.group { display: grid; gap: 0.375rem; }
+.group h3 { margin: 0 0 0.125rem; font: 600 0.6875rem/1 var(--body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.tile { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 0 0.625rem; align-items: center; padding: 0.4375rem 0.625rem; background: var(--surface); border: 1px solid var(--line); border-radius: 0.625rem; color: inherit; text-decoration: none; transition: border-color .15s, transform .15s; min-width: 0; }
+.tile:hover { border-color: var(--accent); transform: translateY(-1px); }
+.tile:focus-visible { outline: 0.125rem solid var(--accent); outline-offset: 0.125rem; }
+.mark { grid-row: span 2; width: 2rem; height: 2rem; border-radius: 0.5rem; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font: 700 0.6875rem var(--display); }
+.name { font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { font: 0.6875rem/1.4 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { color: var(--accent); }
+.sub:empty::before { content: "\00a0"; }
+/* Service icons; icon_dark replaces icon when the dark theme is active */
+.mark.has-icon { padding: 0.25rem; }
+.mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.mark .icon-dark { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .mark .icon-light.swap { display: none; }
+  :root:not([data-theme="light"]) .mark .icon-dark { display: block; }
+}
+:root[data-theme="dark"] .mark .icon-light.swap { display: none; }
+:root[data-theme="dark"] .mark .icon-dark { display: block; }
+.chip { font: 0.6875rem var(--mono); color: var(--muted); background: var(--chip); border-radius: 0.3125rem; padding: 1px 0.375rem; white-space: nowrap; }
+
+.empty { margin: 0; color: var(--muted); }
+.cfg-error { margin: 0; padding: 0.5rem 0.75rem; border-radius: 0.625rem; border: 1px solid var(--critical); color: var(--fg); background: var(--surface); font-size: 0.8125rem; }
+footer { margin: 0; color: var(--muted); font-size: 0.8125rem; }
+footer q { font-style: italic; }
+footer .author { margin-left: 0.5rem; white-space: nowrap; }
+footer .author:not(:empty)::before { content: "— "; }
+footer .source { margin-left: 0.75rem; color: var(--muted); font-size: 0.6875rem; text-decoration: none; opacity: 0.8; }
+footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
+
+/* Live network cards: Internet | Network quality | DNS (wider) */
+.live-state { display: inline-flex; align-items: center; gap: 0.375rem; letter-spacing: 0.08em; }
+.sdot { width: 0.5rem; height: 0.5rem; border-radius: 50%; flex: none; background: var(--line); }
+.sdot.good { background: var(--good); }
+.sdot.warning { background: var(--warning); }
+.sdot.critical { background: var(--critical); }
+.live-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.6fr); gap: 0.75rem; }
+@media (max-width: 1100px) { .live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .card.dns { grid-column: 1 / -1; } }
+@media (max-width: 700px) { .live-grid { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 0.75rem; padding: 0.75rem 0.875rem; display: grid; gap: 0.625rem; align-content: start; min-width: 0; }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.625rem; }
+.card-head h3 { margin: 0 auto 0 0; font: 600 0.875rem/1.2 var(--body); }
+.stale { font-size: 0.75rem; color: var(--muted); display: inline-flex; align-items: center; gap: 0.3125rem; }
+.btn { display: inline-flex; align-items: center; gap: 0.375rem; font: 500 0.75rem/1 var(--body); color: var(--fg); background: var(--chip); border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.3125rem 0.625rem; cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn:disabled { opacity: 0.55; cursor: default; }
+.stale::before { content: "!"; display: grid; place-items: center; width: 0.875rem; height: 0.875rem; border-radius: 50%; background: var(--warning); color: #16203a; font: 700 0.625rem var(--body); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(4.375rem, 1fr)); gap: 0.5rem 0.75rem; }
+.stats.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stat { min-width: 0; }
+.stat .label { color: var(--muted); font-size: 0.75rem; display: flex; align-items: center; gap: 0.375rem; white-space: nowrap; }
+.stat .value { font: 600 1.125rem/1.25 var(--body); white-space: nowrap; }
+.value small { font-size: 0.75rem; font-weight: 500; color: var(--muted); margin-left: 0.1875rem; }
+.key { display: inline-block; width: 0.75rem; height: 0.125rem; border-radius: 1px; flex: none; }
+.key.box { width: 0.5625rem; height: 0.5625rem; border-radius: 0.125rem; }
+.key.s1 { background: var(--s1); }
+.key.s2 { background: var(--s2); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.125rem 0.75rem; color: var(--muted); font-size: 0.75rem; }
+.legend span { display: inline-flex; align-items: center; gap: 0.3125rem; }
+.muted { color: var(--muted); }
+.note { margin: 0; color: var(--muted); font-size: 0.75rem; }
+.facts { display: flex; flex-wrap: wrap; gap: 0.125rem 1rem; font-size: 0.75rem; }
+.facts strong { font-weight: 600; }
+
+.chart { position: relative; min-width: 0; border-radius: 0.375rem; }
+.chart:focus-visible { outline: 0.125rem solid var(--accent); outline-offset: 0.1875rem; }
+.chart svg { display: block; overflow: visible; }
+.chart .grid-line { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font: 0.625rem var(--mono); }
+.chart .ln { fill: none; stroke-width: 0.125rem; stroke-linejoin: round; stroke-linecap: round; }
+.chart .ln.s1 { stroke: var(--s1); }
+.chart .ln.s2 { stroke: var(--s2); }
+.chart .end { stroke: var(--surface); stroke-width: 0.125rem; }
+.chart .end.s1, .chart .seg.s1 { fill: var(--s1); }
+.chart .end.s2, .chart .seg.s2 { fill: var(--s2); }
+.chart .cross { stroke: var(--muted); stroke-width: 1; }
+.chart.has-hot .col:not(.hot) { opacity: 0.45; }
+
+.score { display: flex; align-items: center; gap: 0.875rem; }
+.hero { font: 600 2.75rem/0.9 var(--body); }
+.level { display: inline-flex; align-items: center; gap: 0.375rem; font-weight: 600; }
+.subscores { color: var(--muted); font-size: 0.75rem; }
+.bars-grid { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0.3125rem 0.625rem; font-size: 0.75rem; }
+.bars-grid strong { text-align: right; font-weight: 600; }
+.bars { display: grid; grid-template-columns: repeat(30, 1fr); gap: 0.125rem; height: 0.625rem; }
+.bars span { border-radius: 0.125rem; background: var(--line); }
+.bars span.st0 { background: var(--good); }
+.bars span.st1 { background: var(--warning); }
+.bars span.st2 { background: var(--critical); }
+.bars.has-hot span:not(.hot) { opacity: 0.45; }
+.bars-axis { grid-column: 2; display: flex; justify-content: space-between; color: var(--muted); font: 0.625rem var(--mono); }
+
+.dns-body { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 0.625rem 1.25rem; }
+@media (max-width: 560px) { .dns-body { grid-template-columns: minmax(0, 1fr); } }
+.dns-main, .ranks { display: grid; gap: 0.5rem; align-content: start; min-width: 0; }
+.rank h4 { margin: 0 0 0.25rem; font: 600 0.75rem var(--body); color: var(--muted); }
+.rank ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; }
+.rank li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 0.5rem; font-size: 0.75rem; }
+.rank .domain { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank .count { font-variant-numeric: tabular-nums; color: var(--muted); }
+.rank .meter { grid-column: 1 / -1; height: 0.1875rem; }
+.rank .meter i { display: block; height: 100%; border-radius: 0 0.125rem 0.125rem 0; }
+.rank .meter i.s1 { background: var(--s1); }
+.rank .meter i.s2 { background: var(--s2); }
+details summary { cursor: pointer; color: var(--muted); font-size: 0.75rem; }
+details table { margin-top: 0.375rem; border-collapse: collapse; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+details th, details td { padding: 1px 0.75rem 1px 0; text-align: right; }
+details th:first-child, details td:first-child { text-align: left; }
+details th { color: var(--muted); font-weight: 500; }
+
+#tip { position: fixed; z-index: 10; pointer-events: none; display: grid; gap: 0.1875rem; min-width: 9.375rem; padding: 0.5rem 0.625rem; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 0.5rem; box-shadow: 0 0.375rem 1.25rem rgb(0 0 0 / 0.14); font-size: 0.8125rem; }
+#tip .t { color: var(--muted); font-size: 0.75rem; }
+#tip .r { display: flex; align-items: center; gap: 0.5rem; }
+#tip .r strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+#tip .r span { color: var(--muted); }
+
+/* Theme switch: small and faint in the bottom-right corner, fully visible on hover/focus */
+#theme-toggle { position: fixed; right: 0.75rem; bottom: 0.75rem; z-index: 5; width: 1.75rem; height: 1.75rem; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); opacity: 0.35; cursor: pointer; transition: opacity .15s; }
+#theme-toggle:hover, #theme-toggle:focus-visible { opacity: 1; }
+#theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#theme-toggle svg { width: 1rem; height: 1rem; }
+/* Speed test result: always one line, result on the left, age on the right */
+.st-line { display: flex; justify-content: space-between; gap: 0.75rem; white-space: nowrap; }
+.st-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.st-when { flex: none; }
+
+@media (prefers-reduced-motion: reduce) { .tile, #theme-toggle { transition: none; } .tile:hover { transform: none; } }
+</style>
+
+<div id="backdrop" hidden></div>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1 id="page-title"></h1>
+      <p id="net-line"></p>
+    </div>
+    <form class="search" action="https://www.google.com/search" method="get" role="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input name="q" type="search" placeholder="Search Google" aria-label="Search Google" autocomplete="off" autofocus>
+    </form>
+    <div class="clock" aria-live="off">
+      <div class="time" id="time">--:--</div>
+      <div class="date" id="date"></div>
+    </div>
+  </header>
+
+  <!-- Live data from the collector (/api/status); stays hidden when the page is opened without it -->
+  <section id="live" hidden aria-labelledby="live-title">
+    <h2 id="live-title">Network <span class="live-state"><i class="sdot" id="live-dot"></i><span id="live-text">Live</span></span></h2>
+    <div class="live-grid">
+      <article class="card">
+        <div class="card-head">
+          <h3>Internet</h3>
+          <span class="stale" data-stale="wan" hidden>stale</span>
+          <span class="chip" id="wan-link">–</span>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="label"><i class="key s1"></i>Download</div><div class="value" id="wan-down">–</div></div>
+          <div class="stat"><div class="label"><i class="key s2"></i>Upload</div><div class="value" id="wan-up">–</div></div>
+        </div>
+        <div class="chart" id="wan-chart" role="img" aria-label="WAN download and upload rate, last 30 seconds"></div>
+        <div class="facts">
+          <span><span class="muted">Received</span> <strong id="wan-rx">–</strong></span>
+          <span><span class="muted">Sent</span> <strong id="wan-tx">–</strong></span>
+          <span><span class="muted">WAN up</span> <strong id="wan-uptime">–</strong></span>
+        </div>
+        <p class="note" id="wan-note" hidden>Totals since the WAN link came up; HW NAT can under-count them.</p>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h3>Network quality</h3>
+          <span class="stale" data-stale="quality" hidden>stale</span>
+          <button type="button" class="btn" id="speedtest-btn" disabled>▶ Speed test</button>
+        </div>
+        <div class="score">
+          <div class="hero" id="nq-score">–</div>
+          <div>
+            <div class="level"><i class="sdot" id="nq-dot"></i><span id="nq-level">–</span></div>
+            <div class="subscores" id="nq-sub"></div>
+            <div class="subscores" id="nq-sub2"></div>
+          </div>
+        </div>
+        <div class="stats four">
+          <div class="stat"><div class="label">Internet</div><div class="value" id="nq-internet">–</div></div>
+          <div class="stat"><div class="label">Gateway</div><div class="value" id="nq-gateway">–</div></div>
+          <div class="stat"><div class="label">DNS</div><div class="value" id="nq-dns">–</div></div>
+          <div class="stat"><div class="label">Jitter</div><div class="value" id="nq-jitter">–</div></div>
+        </div>
+        <div class="bars-grid">
+          <span class="muted">Status</span>
+          <div class="bars chart" id="nq-status-bars" role="img" aria-label="Connection status, last 30 minutes"></div>
+          <strong id="nq-status">–</strong>
+          <span class="muted">Loss</span>
+          <div class="bars chart" id="nq-loss-bars" role="img" aria-label="Packet loss, last 30 minutes"></div>
+          <strong id="nq-loss">–</strong>
+          <div class="bars-axis"><span>30 min ago</span><span>now</span></div>
+        </div>
+        <p class="note st-line" id="nq-speedtest" hidden><span class="st-text" id="st-text"></span><span class="st-when" id="st-when"></span></p>
+      </article>
+
+      <article class="card dns">
+        <div class="card-head">
+          <h3>DNS · AdGuard Home</h3>
+          <span class="stale" data-stale="dns" hidden>stale</span>
+          <span class="chip" id="dns-protection">–</span>
+        </div>
+        <div class="dns-body">
+          <div class="dns-main">
+            <div class="stats">
+              <div class="stat"><div class="label">Queries</div><div class="value" id="dns-queries">–</div></div>
+              <div class="stat"><div class="label">Blocked</div><div class="value" id="dns-blocked">–</div></div>
+              <div class="stat"><div class="label">Avg time</div><div class="value" id="dns-avg">–</div></div>
+            </div>
+            <div class="legend"><span><i class="key box s1"></i>Allowed</span><span><i class="key box s2"></i>Blocked</span><span id="dns-window"></span></div>
+            <div class="chart" id="dns-chart" role="img" aria-label="DNS queries per hour, allowed and blocked"></div>
+            <details>
+              <summary>Hourly table</summary>
+              <table><thead><tr><th>Hour</th><th>Queries</th><th>Blocked</th></tr></thead><tbody id="dns-table"></tbody></table>
+            </details>
+          </div>
+          <div class="ranks">
+            <div class="rank"><h4>Top queried</h4><ol id="dns-top-queried"></ol></div>
+            <div class="rank"><h4>Top blocked</h4><ol id="dns-top-blocked"></ol></div>
+          </div>
+        </div>
+      </article>
+    </div>
+    <p class="note" id="router-line"></p>
+  </section>
+
+  <section aria-labelledby="services-title">
+    <div class="section-head">
+      <h2 id="services-title">Services</h2>
+      <label class="filter" for="filter">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+        <input id="filter" type="search" placeholder="Filter services" aria-label="Filter services by name, host or IP" autocomplete="off">
+        <kbd>/</kbd>
+      </label>
+    </div>
+    <p class="cfg-error" id="cfg-error" role="alert" hidden></p>
+    <main id="groups"></main>
+    <p class="empty" id="empty" hidden>No service matches this filter.</p>
+  </section>
+
+  <footer id="footer" hidden><q id="quote-text"></q><span class="author" id="quote-author"></span><a class="source" id="quote-source" target="_blank" rel="noopener"></a></footer>
+</div>
+<div id="tip" role="tooltip" hidden></div>
+<button type="button" id="theme-toggle"></button>
+
+<script>
+// Service catalogue from config/services.yaml (served as /api/config)
+let GROUPS = [];
+
+const root = document.getElementById("groups");
+const empty = document.getElementById("empty");
+const filterInput = document.getElementById("filter");
+
+function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function render(filter) {
+  const f = filter.trim().toLowerCase();
+  let shown = 0;
+  root.innerHTML = GROUPS.map(g => {
+    const items = g.services.filter(i => !f || [i.name, i.host, i.addr].join(" ").toLowerCase().includes(f));
+    shown += items.length;
+    if (!items.length) return "";
+    return `<section class="group"><h3>${esc(g.name)}</h3>${items.map(i => `
+      <a class="tile" href="${esc(i.url)}" target="_blank" rel="noopener" data-addr="${esc(i.addr)}">
+        <span class="mark${i.icon ? " has-icon" : ""}" aria-hidden="true">${markHtml(i)}</span>
+        <span class="name">${esc(i.name)}</span>
+        <span class="sub">${esc(i.host)}</span>${i.addr ? `<span class="sr-only">, ${esc(i.addr)}</span>` : ""}
+      </a>`).join("")}</section>`;
+  }).join("");
+  empty.hidden = shown > 0 || !GROUPS.length;
+  if (tipOwner && tipOwner.classList.contains("tile")) hideTip();  // its tile was just replaced
+}
+
+function markHtml(i) {
+  if (!i.icon) return esc(i.mark);
+  const light = `<img class="icon-light${i.icon_dark ? " swap" : ""}" src="${esc(i.icon)}" alt="" loading="lazy">`;
+  return i.icon_dark ? light + `<img class="icon-dark" src="${esc(i.icon_dark)}" alt="" loading="lazy">` : light;
+}
+
+// Tile tooltip: LAN address and link, shown below the tile on hover or keyboard focus
+function tileTip(tile) {
+  const rows = [];
+  if (tile.dataset.addr) rows.push({ value: tile.dataset.addr, label: "LAN" });
+  rows.push({ value: tile.href.replace(/^https?:\/\//, "").replace(/\/$/, ""), label: "link" });
+  const r = tile.getBoundingClientRect(), pad = 14 * scale();
+  showTip(tile, r.left - pad, r.bottom - pad + 6 * scale(), tile.querySelector(".name").textContent, rows);
+}
+root.addEventListener("pointerover", e => { const t = e.target.closest(".tile"); if (t && t !== tipOwner) tileTip(t); });
+root.addEventListener("pointerout", e => {
+  const t = e.target.closest(".tile");
+  if (t && t === tipOwner && !t.contains(e.relatedTarget)) hideTip();
+});
+root.addEventListener("focusin", e => { const t = e.target.closest(".tile"); if (t) tileTip(t); });
+root.addEventListener("focusout", () => { if (tipOwner && tipOwner.classList.contains("tile")) hideTip(); });
+
+filterInput.addEventListener("input", () => render(filterInput.value));
+// Enter in the filter opens the first matching service
+filterInput.addEventListener("keydown", e => {
+  const first = root.querySelector(".tile");
+  if (e.key === "Enter" && filterInput.value.trim() && first) { e.preventDefault(); window.open(first.href, "_blank", "noopener"); }
+});
+// "/" jumps to the filter unless the user is typing somewhere (e.g. the Google search box)
+document.addEventListener("keydown", e => {
+  const typing = e.target.matches("input, textarea, select");
+  if (e.key === "/" && !typing) { e.preventDefault(); filterInput.focus(); }
+  if (e.key === "Escape" && (e.target === filterInput || !typing)) { filterInput.value = ""; render(""); filterInput.blur(); }
+});
+
+// Theme: auto (follows the system) / light / dark. The switch stores a per-browser choice;
+// without one, page.theme from the config applies.
+const THEMES = ["auto", "light", "dark"];
+const THEME_ICONS = {
+  auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>',
+  light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>',
+};
+let configTheme = "auto";
+function storedTheme() { try { return localStorage.getItem("theme"); } catch (e) { return null; } }
+function applyTheme() {
+  const stored = storedTheme(), theme = THEMES.includes(stored) ? stored : configTheme;
+  if (theme === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  const btn = document.getElementById("theme-toggle"), next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  btn.innerHTML = THEME_ICONS[theme];
+  btn.title = `Theme: ${theme === "auto" ? "auto (follows the system)" : theme} · click for ${next}`;
+  btn.setAttribute("aria-label", btn.title);
+}
+document.getElementById("theme-toggle").addEventListener("click", () => {
+  const stored = storedTheme(), current = THEMES.includes(stored) ? stored : configTheme;
+  const next = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length];
+  try { localStorage.setItem("theme", next); } catch (e) {}
+  applyTheme();
+});
+applyTheme();
+
+// page: header title parts (optionally coloured), browser tab title, background image
+function applyPage(page) {
+  document.title = page.tab_title;
+  configTheme = page.theme || "auto";
+  applyTheme();
+  document.getElementById("page-title").replaceChildren(...page.title.map(part => {
+    const span = document.createElement("span");
+    span.textContent = part.text;
+    if (part.color === "accent") span.className = "accent";
+    else if (part.color) span.style.color = part.color;
+    return span;
+  }));
+  const backdrop = document.getElementById("backdrop"), bg = page.background;
+  backdrop.hidden = !bg;
+  if (bg) {
+    backdrop.style.backgroundImage = `url(${JSON.stringify(bg.image)})`;
+    backdrop.style.setProperty("--shade", bg.shade);
+    backdrop.style.filter = bg.blur ? `blur(${bg.blur}px)` : "";
+    backdrop.style.inset = bg.blur ? `${-2 * bg.blur}px` : "0";  // keep blurred edges off-screen
+  }
+  imageTone(bg, tone => {
+    document.body.classList.toggle("bg-dark", tone === "dark");
+    document.body.classList.toggle("bg-light", tone === "light");
+  });
+}
+
+// Tone of the background image: from the config, or measured as its average luminance.
+// External images cannot be measured (the canvas is tainted): they fall back to the theme colours.
+function imageTone(bg, apply) {
+  if (!bg) return apply(null);
+  if (bg.tone === "dark" || bg.tone === "light") return apply(bg.tone);
+  const img = new Image();
+  img.onload = () => {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 24;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, 24, 24);
+      const px = ctx.getImageData(0, 0, 24, 24).data;
+      let sum = 0;
+      for (let i = 0; i < px.length; i += 4) sum += 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+      apply(sum / (px.length / 4) / 255 < 0.45 ? "dark" : "light");
+    } catch (e) { apply(null); }
+  };
+  img.onerror = () => apply(null);
+  img.src = bg.image;
+}
+
+// Footer: quote of the day from the collector (/api/quote), which downloads and caches it.
+// Re-checked when the local date changes and hourly (the providers switch at UTC midnight).
+let quoteDay = null;
+async function loadQuote() {
+  try {
+    const resp = await fetch("api/quote", { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const { quote, fallback } = await resp.json();
+    const footer = document.getElementById("footer");
+    footer.hidden = !quote;
+    if (!quote) return;
+    document.getElementById("quote-text").textContent = quote.text;
+    document.getElementById("quote-author").textContent = quote.author;
+    const source = document.getElementById("quote-source");
+    source.textContent = `via ${quote.source}`;
+    if (/^https:\/\//.test(quote.link)) source.href = quote.link; else source.removeAttribute("href");
+    source.title = fallback ? `Cached quote from ${quote.date}: the quote service is unreachable right now` : "";
+  } catch (e) { /* keep showing the current quote */ }
+}
+function showQuote() {
+  const day = new Date().toDateString();
+  if (day !== quoteDay) { quoteDay = day; loadQuote(); }
+}
+setInterval(loadQuote, 3600e3);
+
+function tick() {
+  const d = new Date();
+  document.getElementById("time").textContent = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  document.getElementById("date").textContent = d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+  showQuote();
+}
+tick(); setInterval(tick, 10000);
+
+// Load services.yaml via the collector; re-check every 30 s and re-render only when it changed
+let configText = null;
+async function loadConfig() {
+  const errorBox = document.getElementById("cfg-error");
+  try {
+    const resp = await fetch("api/config", { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const { config, error } = await resp.json();
+    errorBox.hidden = !error;
+    errorBox.textContent = error ? `Config error, showing the last valid version: ${error}` : "";
+    const text = JSON.stringify(config);
+    if (!config || text === configText) return;
+    configText = text;
+    GROUPS = config.groups;
+    speedtestSchedule = config.speedtest && config.speedtest.schedule;
+    applyPage(config.page);
+    document.getElementById("net-line").textContent = [config.network.subnet, config.network.label].filter(Boolean).join(" · ");
+    render(filterInput.value);
+  } catch (e) {
+    if (configText === null) { errorBox.hidden = false; errorBox.textContent = `Could not load the service list (${e.message}).`; }
+  }
+}
+loadConfig();
+setInterval(loadConfig, 30000);
+
+// ---------------------------------------------------------------------------
+// Live network panel. Router strings (domains, labels) are inserted with textContent only.
+// ---------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const nf = new Intl.NumberFormat("en-GB");
+const cf = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+const REFRESH_MS = 5000;
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// Scale a value to [number, unit] with 2/1/0 decimals depending on magnitude
+function scaled(v, units, base) {
+  let i = 0;
+  while (Math.abs(v) >= base && i < units.length - 1) { v /= base; i++; }
+  return [v.toFixed(i === 0 ? 0 : v < 10 ? 2 : v < 100 ? 1 : 0), units[i]];
+}
+const bits = v => scaled(v, ["bps", "kbps", "Mbps", "Gbps"], 1000);
+const bitRate = bytesPerSec => bits(bytesPerSec * 8);
+const byteSize = b => scaled(b, ["B", "KB", "MB", "GB", "TB"], 1000);
+const joinPair = p => p.join(" ");
+
+function duration(s) {
+  if (s == null) return null;
+  s = Math.floor(s);
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+
+function setText(id, v) { $(id).textContent = v == null || v === "" ? "–" : v; }
+function setValue(id, pair) {
+  const e = $(id);
+  if (!pair) { e.textContent = "–"; return; }
+  e.replaceChildren(String(pair[0]), el("small", null, pair[1]));
+}
+// Current root font size relative to the 16px design size; chart geometry is multiplied by it
+const scale = () => parseFloat(getComputedStyle(document.documentElement).fontSize) / 16;
+
+function niceMax(v) {
+  const p = 10 ** Math.floor(Math.log10(Math.max(v, 1e-9)));
+  return [1, 2, 2.5, 5, 10].map(m => m * p).find(m => m >= v);
+}
+
+// --- Shared tooltip + hover/keyboard layer --------------------------------
+// Each chart host gets host._chart = { n, indexAt(x), xOf(i), title(i), rows(i), highlight(i) }.
+const tip = $("tip");
+let tipOwner = null;
+function hideTip() { tip.hidden = true; tipOwner = null; }
+
+function showTip(owner, x, y, title, rows) {
+  tipOwner = owner;
+  tip.replaceChildren(el("div", "t", title));
+  for (const r of rows) {
+    const row = el("div", "r");
+    if (r.key) row.append(el("i", "key " + r.key));
+    row.append(el("strong", null, r.value), el("span", null, r.label));
+    tip.append(row);
+  }
+  tip.hidden = false;
+  const pad = 14 * scale(), w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = `${x + pad + w > innerWidth - 8 ? x - pad - w : x + pad}px`;
+  tip.style.top = `${y + pad + h > innerHeight - 8 ? y - pad - h : y + pad}px`;
+}
+
+function paint(host) {
+  const st = host._chart;
+  if (!st) return;
+  if (st.active == null) {
+    st.highlight(null);
+    if (tipOwner === host) { tip.hidden = true; tipOwner = null; }
+    return;
+  }
+  st.active = Math.max(0, Math.min(st.n - 1, st.active));
+  st.highlight(st.active);
+  const r = host.getBoundingClientRect();
+  const [x, y] = st.pointer || [r.left + st.xOf(st.active), r.top];
+  showTip(host, x, y, st.title(st.active), st.rows(st.active));
+}
+
+function wire(host) {
+  if (host._wired) return;
+  host._wired = true;
+  host.tabIndex = 0;
+  host.addEventListener("pointermove", e => {
+    const st = host._chart;
+    if (!st) return;
+    st.active = st.indexAt(e.clientX - host.getBoundingClientRect().left);
+    st.pointer = [e.clientX, e.clientY];
+    paint(host);
+  });
+  host.addEventListener("pointerleave", () => { if (host._chart) { host._chart.active = null; paint(host); } });
+  host.addEventListener("focus", () => { if (host._chart) { host._chart.active = host._chart.n - 1; host._chart.pointer = null; paint(host); } });
+  host.addEventListener("blur", () => { if (host._chart) { host._chart.active = null; paint(host); } });
+  host.addEventListener("keydown", e => {
+    const st = host._chart;
+    if (!st || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+    e.preventDefault();
+    st.active = (st.active ?? st.n - 1) + (e.key === "ArrowLeft" ? -1 : 1);
+    st.pointer = null;
+    paint(host);
+  });
+}
+
+// Replace a chart's state, keeping the hovered index across refreshes
+function mount(host, state) {
+  wire(host);
+  const prev = host._chart;
+  host._chart = { ...state, active: prev ? prev.active : null, pointer: prev ? prev.pointer : null };
+  if (host._chart.active != null) paint(host); else host._chart.highlight(null);
+}
+
+// --- WAN rate: two 2px lines, crosshair tooltip ----------------------------
+function lineChart(host, series, fmt, secondsPerPoint) {
+  const k = scale(), w = Math.max(200, host.clientWidth), h = 72 * k, top = 14 * k, bottom = 14 * k, pad = 6 * k;
+  const n = Math.max(2, ...series.map(s => s.values.length));
+  const max = niceMax(Math.max(1, ...series.flatMap(s => s.values)));
+  const xOf = i => pad + (w - 2 * pad) * i / (n - 1);
+  const yOf = v => top + (h - top - bottom) * (1 - v / max);
+  const base = Math.round(yOf(0)) + 0.5, cap = Math.round(yOf(max)) + 0.5;
+  let svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">`
+    + `<line class="grid-line" x1="0" x2="${w}" y1="${cap}" y2="${cap}"/>`
+    + `<line class="grid-line" x1="0" x2="${w}" y1="${base}" y2="${base}"/>`
+    + `<text class="axis" x="0" y="${cap - 4 * k}">${joinPair(fmt(max))}</text>`
+    + `<text class="axis" x="0" y="${h - 3 * k}">${(n - 1) * secondsPerPoint} s ago</text>`
+    + `<text class="axis" x="${w}" y="${h - 3 * k}" text-anchor="end">now</text>`
+    + `<line class="cross" x1="0" x2="0" y1="${top - 4 * k}" y2="${base}" visibility="hidden"/>`;
+  for (const s of series) {
+    if (!s.values.length) continue;
+    const offset = n - s.values.length;
+    svg += `<path class="ln ${s.key}" d="${s.values.map((v, i) => `${i ? "L" : "M"}${xOf(i + offset).toFixed(1)},${yOf(v).toFixed(1)}`).join("")}"/>`;
+    const last = s.values[s.values.length - 1];
+    svg += `<circle class="end ${s.key}" r="${4 * k}" cx="${xOf(n - 1).toFixed(1)}" cy="${yOf(last).toFixed(1)}"/>`;
+  }
+  host.innerHTML = svg + "</svg>";
+  const cross = host.querySelector(".cross");
+  const valueAt = (s, i) => s.values[i - (n - s.values.length)];
+  mount(host, {
+    n,
+    indexAt: x => Math.round((x - pad) / (w - 2 * pad) * (n - 1)),
+    xOf,
+    title: i => i === n - 1 ? "now" : `${(n - 1 - i) * secondsPerPoint} s ago`,
+    rows: i => series.map(s => ({ key: s.key, value: valueAt(s, i) == null ? "–" : joinPair(fmt(valueAt(s, i))), label: s.label })),
+    highlight: i => {
+      cross.setAttribute("visibility", i == null ? "hidden" : "visible");
+      if (i != null) { const x = Math.round(xOf(i)) + 0.5; cross.setAttribute("x1", x); cross.setAttribute("x2", x); }
+    },
+  });
+}
+
+// --- DNS per hour: stacked columns (allowed bottom, blocked top), 2px surface gap
+function columnChart(host, total, blocked) {
+  const k = scale(), w = Math.max(200, host.clientWidth), h = 78 * k, top = 14 * k, bottom = 14 * k;
+  const n = total.length || 24, band = w / n, bw = Math.min(24 * k, Math.max(3, band - 4 * k));
+  const max = niceMax(Math.max(1, ...total));
+  const plot = h - top - bottom, base = top + plot;
+  const hourAt = i => { const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() - (n - 1 - i)); return d; };
+  const hh = d => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  // Rectangle with 4px rounded top corners, square at the bottom
+  const roundTop = (x, y, bw, bh) => {
+    const r = Math.min(4 * k, bh, bw / 2);
+    return `M${x},${y + bh}V${y + r}A${r},${r} 0 0 1 ${x + r},${y}H${x + bw - r}A${r},${r} 0 0 1 ${x + bw},${y + r}V${y + bh}Z`;
+  };
+  let svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">`
+    + `<line class="grid-line" x1="0" x2="${w}" y1="${top + 0.5}" y2="${top + 0.5}"/>`
+    + `<text class="axis" x="0" y="${top - 4 * k}">${cf.format(max)} / h</text>`;
+  for (let i = 0; i < n; i++) {
+    const x = +(i * band + (band - bw) / 2).toFixed(1);
+    const b = Math.min(blocked[i] || 0, total[i] || 0), a = (total[i] || 0) - b;
+    const ha = a / max * plot, hb = b / max * plot, gap = ha > 0 && hb > 0 ? 2 * k : 0;
+    let g = "";
+    if (ha > 0) g += hb > 0 ? `<rect class="seg s1" x="${x}" y="${(base - ha).toFixed(1)}" width="${bw.toFixed(1)}" height="${ha.toFixed(1)}"/>`
+                           : `<path class="seg s1" d="${roundTop(x, base - ha, bw, ha)}"/>`;
+    if (hb > 0) g += `<path class="seg s2" d="${roundTop(x, base - ha - gap - hb, bw, hb)}"/>`;
+    svg += `<g class="col">${g}</g>`;
+    const d = hourAt(i);
+    if (d.getHours() % 6 === 0) svg += `<text class="axis" x="${(i * band + band / 2).toFixed(1)}" y="${h - 3 * k}" text-anchor="middle">${hh(d)}</text>`;
+  }
+  svg += `<line class="grid-line" x1="0" x2="${w}" y1="${base + 0.5}" y2="${base + 0.5}"/>`;
+  host.innerHTML = svg + "</svg>";
+  const cols = host.querySelectorAll(".col");
+  mount(host, {
+    n,
+    indexAt: x => Math.floor(x / band),
+    xOf: i => i * band + band / 2,
+    title: i => { const d = hourAt(i); const e = new Date(d.getTime() + 3600e3); return `${hh(d)}–${hh(e)}${i === n - 1 ? " (so far)" : ""}`; },
+    rows: i => [
+      { key: "box s1", value: nf.format((total[i] || 0) - (blocked[i] || 0)), label: "allowed" },
+      { key: "box s2", value: nf.format(blocked[i] || 0), label: total[i] ? `blocked · ${(100 * (blocked[i] || 0) / total[i]).toFixed(1)} %` : "blocked" },
+    ],
+    highlight: i => { host.classList.toggle("has-hot", i != null); cols.forEach((c, j) => c.classList.toggle("hot", j === i)); },
+  });
+  $("dns-table").replaceChildren(...total.map((t, i) => {
+    const tr = el("tr");
+    tr.append(el("td", null, hh(hourAt(i))), el("td", null, nf.format(t)), el("td", null, nf.format(blocked[i] || 0)));
+    return tr;
+  }).reverse());
+}
+
+// --- 30-minute status strips (codes as in the GL UI: -1 off, 0 ok, 1 warn, 2 bad)
+const SEGMENT = { "-1": "No data", 0: "Good", 1: "Degraded", 2: "Bad" };
+function statusBars(host, codes) {
+  const list = codes.length >= 30 ? codes.slice(-30) : [...codes, ...Array(30 - codes.length).fill(-1)];
+  host.replaceChildren(...list.map(c => el("span", c in SEGMENT && c >= 0 ? `st${c}` : null)));
+  const spans = host.children;
+  mount(host, {
+    n: 30,
+    indexAt: x => Math.floor(x / (host.clientWidth / 30)),
+    xOf: i => (i + 0.5) * host.clientWidth / 30,
+    title: i => i === 29 ? "this minute" : `${29 - i} min ago`,
+    rows: i => [{ value: SEGMENT[list[i]] ?? "No data", label: host.getAttribute("aria-label").split(",")[0].toLowerCase() }],
+    highlight: i => { host.classList.toggle("has-hot", i != null); [...spans].forEach((s, j) => s.classList.toggle("hot", j === i)); },
+  });
+}
+
+function rankList(list, items, key) {
+  const max = Math.max(1, ...items.map(i => i[1]));
+  list.replaceChildren(...items.slice(0, 3).map(([domain, count]) => {
+    const li = el("li"), meter = el("span", "meter"), bar = el("i", key);
+    bar.style.width = `${(100 * count / max).toFixed(1)}%`;
+    meter.append(bar);
+    const name = el("span", "domain", domain);
+    name.title = domain;
+    li.append(name, el("span", "count", nf.format(count)), meter);
+    return li;
+  }));
+  if (!items.length) list.replaceChildren(el("li", "muted", "No data yet"));
+}
+
+// Freshness per source: an error, or no update within maxAge seconds, marks it stale
+function source(snap, name, maxAge) {
+  const s = snap.sources[name];
+  if (!s) return { data: null, stale: "waiting for first sample" };
+  const age = s.updated ? snap.now - s.updated : Infinity;
+  return { data: s.data, stale: s.error || (maxAge && age > maxAge ? `no update for ${Math.round(age)} s` : null) };
+}
+function markStale(name, reason) {
+  const e = document.querySelector(`[data-stale="${name}"]`);
+  e.hidden = !reason;
+  e.title = reason || "";
+}
+
+const LEVELS = [[90, "Rock Solid", "good"], [80, "Healthy", "good"], [65, "Fluctuating", "warning"], [45, "Degraded", "critical"], [0, "Critical", "critical"]];
+
+function renderWan(snap) {
+  const wan = source(snap, "wan", snap.interval * 3), link = source(snap, "link", 0);
+  const nq = source(snap, "quality", 15), router = source(snap, "router", snap.interval * 3);
+  markStale("wan", wan.stale);
+  const rate = !nq.stale && nq.data && nq.data.rate;
+  const w = wan.data || {};
+  // Live rate from network quality (1 s samples); fall back to counter deltas between polls
+  const down = rate ? rate.download_current : w.rx_rate, up = rate ? rate.upload_current : w.tx_rate;
+  setValue("wan-down", down == null ? null : bitRate(down));
+  setValue("wan-up", up == null ? null : bitRate(up));
+  setText("wan-rx", w.rx_bytes == null ? null : joinPair(byteSize(w.rx_bytes)));
+  setText("wan-tx", w.tx_bytes == null ? null : joinPair(byteSize(w.tx_bytes)));
+  setText("wan-uptime", w.up === false ? "down" : duration(w.uptime));
+  const l = link.data || {}, ip = l.ipv4 && l.ipv4.ip ? l.ipv4.ip.split("/")[0] : null;
+  setText("wan-link", [(l.protocol || w.proto || "").toUpperCase(), ip].filter(Boolean).join(" · "));
+  $("wan-note").hidden = !(router.data && router.data.netnat_enabled);
+  if (rate && Array.isArray(rate.download_list)) {
+    lineChart($("wan-chart"), [
+      { key: "s1", label: "download", values: rate.download_list.map(v => v * 8) },
+      { key: "s2", label: "upload", values: (rate.upload_list || []).map(v => v * 8) },
+    ], bits, 1);
+  }
+}
+
+function renderQuality(snap) {
+  const nq = source(snap, "quality", 15);
+  markStale("quality", nq.stale);
+  const d = nq.data;
+  if (!d) return;
+  const r = d.responsiveness || {}, rel = d.reliability || {};
+  const [, level, status] = LEVELS.find(([min]) => (d.score || 0) >= min);
+  setText("nq-score", d.score);
+  setText("nq-level", level);
+  $("nq-dot").className = `sdot ${status}`;
+  setText("nq-sub", `Response ${r.score ?? "–"} · Reliability ${rel.score ?? "–"}`);
+  const ms = v => v == null ? null : [v, "ms"];
+  setValue("nq-internet", ms(r.internet_latency));
+  setValue("nq-gateway", ms(r.wan_gateway_latency));
+  setValue("nq-dns", ms(r.dns_lookup_latency));
+  setValue("nq-jitter", ms(r.jitter_latency));
+  setText("nq-sub2", r.typical_latency == null ? null : `Typical ${r.typical_latency} ms · worst ${r.worst_latency} ms`);
+  setText("nq-status", rel.status_label);
+  setText("nq-loss", rel.packet_loss_percent == null ? null : `${rel.packet_loss_percent} %`);
+  statusBars($("nq-status-bars"), rel.status || []);
+  statusBars($("nq-loss-bars"), rel.packet_loss || []);
+}
+
+// --- Speed test: the router runs it (network-quality.set_speedtest); progress arrives with the quality data
+let speedtestBusy = false, speedtestMsg = null, speedtestMsgTimer, speedtestSchedule = null;
+const speedtestState = snap => ((((snap && snap.sources.quality) || {}).data || {}).speedtest || {}).state || "idle";
+
+function renderSpeedtest(snap) {
+  const nq = source(snap, "quality", 15), t = (nq.data && nq.data.speedtest) || {};
+  const running = t.state === "running", btn = $("speedtest-btn"), note = $("nq-speedtest");
+  btn.textContent = speedtestBusy ? "…" : running ? "■ Stop test" : "▶ Speed test";
+  btn.disabled = speedtestBusy || Boolean(nq.stale);
+  btn.title = speedtestSchedule ? `Also runs automatically every day at ${speedtestSchedule} (router time)` : "";
+  // While running, download/upload hold the current speed (updated every second); 0 or -1 means the phase has not started
+  const mbps = v => v == null || v <= 0 ? "…" : Math.round(v);
+  let text = null, when = "", title = "";
+  if (speedtestMsg) text = speedtestMsg;
+  else if (running) text = `Running… ↓ ${mbps(t.download)} · ↑ ${mbps(t.upload)} Mbps`;
+  else if (t.state === "success" && t.download != null) {
+    text = `↓ ${mbps(t.download)} · ↑ ${mbps(t.upload)} Mbps` + (t.bufferbloat ? ` · bufferbloat ${t.bufferbloat}` : "");
+    // finished_at is recorded by the collector; null = the test ran before it started watching
+    when = t.finished_at ? `tested ${ago(snap.now - t.finished_at)}` : "tested earlier";
+    title = t.finished_at
+      ? `Last speed test: ${new Date(t.finished_at * 1000).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
+      : "The test ran before the collector started, so its time is unknown";
+  } else if (t.state === "failed") text = "Last speed test failed";
+  note.hidden = !text;
+  note.title = title;
+  $("st-text").textContent = text || "";
+  $("st-when").textContent = when;
+}
+
+function ago(seconds) {
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+  return `${Math.floor(seconds / 86400)} d ago`;
+}
+
+$("speedtest-btn").addEventListener("click", async () => {
+  const enable = speedtestState(lastSnap) !== "running";
+  speedtestBusy = true;
+  speedtestMsg = null;
+  if (lastSnap) renderSpeedtest(lastSnap);
+  try {
+    const resp = await fetch("api/speedtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enable }) });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(body.error || `HTTP ${resp.status}`);
+  } catch (e) {
+    speedtestMsg = `Speed test: ${e.message}`;
+    clearTimeout(speedtestMsgTimer);
+    speedtestMsgTimer = setTimeout(() => { speedtestMsg = null; if (lastSnap) renderSpeedtest(lastSnap); }, 10000);
+  } finally {
+    speedtestBusy = false;
+    refresh();
+  }
+});
+
+function renderDns(snap) {
+  const dns = source(snap, "dns", snap.interval * 3);
+  markStale("dns", dns.stale);
+  const d = dns.data;
+  if (!d) return;
+  setText("dns-protection", !d.running ? "not running" : d.protection_enabled ? "protection on" : "protection off");
+  setText("dns-queries", d.queries == null ? null : cf.format(d.queries));
+  $("dns-queries").title = d.queries == null ? "" : nf.format(d.queries);
+  const pct = d.queries ? (100 * d.blocked / d.queries).toFixed(1) : null;
+  setValue("dns-blocked", pct == null ? null : [cf.format(d.blocked), `${pct} %`]);
+  setValue("dns-avg", d.avg_ms == null ? null : [d.avg_ms.toFixed(1), "ms"]);
+  setText("dns-window", d.time_units === "hours" ? `last ${d.queries_series.length} h` : `last ${d.queries_series.length} days`);
+  if (d.time_units === "hours") columnChart($("dns-chart"), d.queries_series, d.blocked_series);
+  rankList($("dns-top-queried"), d.top_queried || [], "s1");
+  rankList($("dns-top-blocked"), d.top_blocked || [], "s2");
+}
+
+function dnsUpstreams(snap) {
+  const ups = ((snap.sources.dns || {}).data || {}).upstreams || [];
+  return ups.length ? "DNS upstreams " + ups.map(u => `${u.name.replace(/:53$/, "")} ${u.avg_ms} ms`).join(", ") : null;
+}
+
+function renderRouter(snap) {
+  const r = source(snap, "router", snap.interval * 3).data;
+  if (!r) return;
+  const parts = [
+    "Router",
+    r.cpu_temp != null && `CPU ${r.cpu_temp} °C`,
+    r.load && `load ${r.load[0].toFixed(2)}`,
+    r.memory_used != null && `memory ${Math.round(r.memory_used * 100)} %`,
+    r.clients != null && `${r.clients} clients`,
+    r.uptime != null && `up ${duration(r.uptime)}`,
+    dnsUpstreams(snap),
+    `updated ${new Date(snap.now * 1000).toLocaleTimeString("en-GB")}`,
+  ];
+  setText("router-line", parts.filter(Boolean).join(" · "));
+}
+
+function setLiveState(status, text) {
+  $("live-dot").className = `sdot ${status}`;
+  $("live-text").textContent = text;
+}
+
+let lastSnap = null;
+function renderLive(snap) {
+  $("live").hidden = false;
+  for (const fn of [renderWan, renderQuality, renderSpeedtest, renderDns, renderRouter]) {
+    try { fn(snap); } catch (e) { console.error(fn.name, e); }
+  }
+  const stale = [...document.querySelectorAll("[data-stale]")].some(e => !e.hidden);
+  setLiveState(stale ? "warning" : "good", stale ? "Partial" : "Live");
+}
+
+// One refresh chain: every run replaces the pending timer; poll twice a second while a speed test runs
+let refreshTimer;
+async function refresh() {
+  try {
+    const resp = await fetch("api/status", { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    lastSnap = await resp.json();
+    renderLive(lastSnap);
+  } catch (e) {
+    if (lastSnap) setLiveState("critical", "Offline");
+  } finally {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refresh, speedtestState(lastSnap) === "running" ? 500 : REFRESH_MS);
+  }
+}
+// Re-lay out charts on resize using the cached snapshot
+let resizeTimer;
+addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => lastSnap && renderLive(lastSnap), 150); });
+refresh();
+</script>
+</html>

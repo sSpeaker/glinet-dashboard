@@ -1,0 +1,153 @@
+# Example configuration - copy this folder to ./config and adjust it:  cp -r config.example config
+#
+# Start page configuration.
+#
+# Edits apply automatically (the page re-checks every 30 s, or reload it) - no rebuild needed.
+# Only network.router is read once at start: restart the container after changing it.
+# If the file has an error, the page keeps the last valid version and shows the error message.
+# Quote values that YAML could read as numbers or times, e.g. addr: "8080" or addr: "1:30".
+
+page:
+  tab_title: Home Lab           # browser tab title
+  theme: auto                   # default theme: auto (follows the system), light or dark;
+                                # the switch in the bottom-right corner overrides it per browser
+  # Header title: plain text (title: My Home) or a list of parts, each with an optional colour.
+  # color: accent (theme colour, adapts to dark mode) or any CSS colour: "#e5534b", tomato, ...
+  title:
+    - text: "home"
+    - text: ".lab"
+      color: accent
+  # Optional background image behind the page:
+  #   image  a file in this config folder (jpg, png, webp, avif, gif) or an https:// URL
+  #   shade  0-0.9, veils the image with the theme background so text stays readable (default 0.45)
+  #   blur   0-40, blur radius in px (default 0)
+  #   tone   auto (default), dark or light: brightness of the image; text placed directly on it
+  #          (title, clock, headings, quote) is light on dark images and dark on light ones.
+  #          auto measures the image; set it explicitly for https:// images
+  background:
+    image: background.jpg   # photo: Marek Piwnicki, Unsplash (unsplash.com/photos/ooxzy4JN6gw)
+    shade: 0
+    blur: 0
+
+network:
+  subnet: 192.168.8.0/24
+  label: LAN
+  router: 192.168.8.1           # GL.iNet router polled by the collector
+
+speedtest:
+  schedule: "03:00"             # automatic daily speed test, router local time; "" turns it off
+
+# Each service:
+#   name  (required)  tile title
+#   url   (required)  opens in a new tab; http:// or https://
+#   icon  (optional)  image file in config/icons/ (svg, png, webp, ...) or an https:// URL;
+#                     without it the tile shows `mark`. Free icons: https://github.com/homarr-labs/dashboard-icons
+#   icon_dark (opt.)  variant used with the dark theme, e.g. a white logo instead of a black one
+#   mark  (optional)  2-3 letters shown when there is no icon; default: initials of the name
+#   host  (optional)  second line on the tile, usually the public hostname
+#   addr  (optional)  LAN backend ip:port, shown in the tooltip on hover
+# The filter box searches name, host and addr. Groups without services are hidden.
+groups:
+  - name: Network
+    services:
+      - name: Router
+        mark: GL
+        icon: glinet.svg
+        icon_dark: glinet-dark.svg
+        url: https://router.example.com
+        host: router.example.com
+        addr: 192.168.8.1:80
+      - name: AdGuard Home
+        mark: AG
+        icon: adguard-home.svg
+        url: https://router.example.com:3000
+        host: router.example.com:3000
+        addr: 192.168.8.1:3000
+      - name: Nginx Proxy Manager
+        mark: NP
+        icon: nginx-proxy-manager.svg
+        url: http://192.168.8.2:81
+        host: admin
+        addr: 192.168.8.2:81
+
+  - name: Infrastructure
+    services:
+      - name: Proxmox
+        mark: PX
+        icon: proxmox.svg
+        icon_dark: proxmox-light.svg
+        url: https://proxmox.example.com
+        host: proxmox.example.com
+        addr: 192.168.8.10:8006
+      - name: CasaOS
+        mark: CA
+        icon: casaos.svg
+        url: https://casa.example.com
+        host: casa.example.com
+        addr: 192.168.8.20:80
+      - name: Homarr
+        mark: HM
+        icon: homarr.svg
+        url: https://homarr.example.com
+        host: homarr.example.com
+        addr: 192.168.8.20:7575
+
+  - name: Media
+    services:
+      - name: Plex
+        mark: PL
+        icon: plex.svg
+        icon_dark: plex-light.svg
+        url: https://plex.example.com
+        host: plex.example.com
+        addr: 192.168.8.20:32400
+      - name: Sonarr
+        mark: SO
+        icon: sonarr-dark.svg
+        icon_dark: sonarr.svg
+        url: https://sonarr.example.com
+        host: sonarr.example.com
+        addr: 192.168.8.20:8989
+      - name: Radarr
+        mark: RA
+        icon: radarr.svg
+        url: https://radarr.example.com
+        host: radarr.example.com
+        addr: 192.168.8.20:7878
+      - name: qBittorrent
+        mark: QB
+        icon: qbittorrent.svg
+        url: https://qbit.example.com
+        host: qbit.example.com
+        addr: 192.168.8.20:8080
+
+  - name: Home
+    services:
+      - name: Home Assistant
+        mark: HA
+        icon: home-assistant.svg
+        url: http://192.168.8.30:8123
+        host: direct
+        addr: 192.168.8.30:8123
+      - name: OctoPrint
+        mark: OP
+        icon: octoprint.svg
+        url: http://192.168.8.31
+        host: direct
+        addr: 192.168.8.31:80
+
+  - name: Admin
+    services:
+      - name: Tailscale
+        mark: TS
+        icon: tailscale.svg
+        icon_dark: tailscale-light.svg
+        url: https://login.tailscale.com/admin/machines
+        host: tailscale.com
+        addr: subnet 192.168.8.0/24
+      - name: Porkbun DNS
+        mark: PB
+        icon: porkbun.png
+        url: https://porkbun.com/account/domainsSpeedy
+        host: porkbun.com
+        addr: "*.example.com A"

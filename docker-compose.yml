@@ -1,0 +1,52 @@
+# glinet-dashboard: live GL.iNet router stats (WAN, network quality, AdGuard DNS) + start page on :3100
+#
+#   cp -r config.example config            # then edit config/services.yaml
+#   export GL_PASS='<router root password>' # or put GL_PASS=... in a .env file next to this one
+#   docker compose up -d
+#
+# Build from source instead of pulling:  docker build -t sspeaker/glinet-dashboard:latest .
+name: glinet-dashboard
+
+services:
+  glinet-dashboard:
+    image: sspeaker/glinet-dashboard:latest
+    container_name: glinet-dashboard
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    environment:
+      # Router root password, taken from the shell environment or .env; never put it in this file
+      GL_PASS: ${GL_PASS:?set GL_PASS to the router root password}
+      GL_USER: root
+      LUCI_PORT: "8080"
+      ADGUARD_PORT: "3000"
+      WAN_INTERFACE: wan
+      POLL_SECONDS: "5"
+      TOP_N: "10"
+      PORT: "3100"
+      # The router address comes from network.router in config/services.yaml; GL_HOST overrides it
+      # GL_HOST: 192.168.8.1
+    volumes:
+      # Mount the directory, not the file: editors that save by replacing the file would break a file mount
+      - ./config:/app/config:ro
+      # Quote-of-the-day cache and speed test history, survives restarts and quote service outages
+      - glinet-dashboard-data:/app/data
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3100/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 1m
+        max-file: "3"
+
+volumes:
+  glinet-dashboard-data:
