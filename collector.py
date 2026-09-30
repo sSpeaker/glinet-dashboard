@@ -508,13 +508,21 @@ def poll_loop(gl, luci, state):
 
 
 def stream_loop(gl, state):
-    """Subscribe to the GL UI WebSocket; the router pushes network_quality.status every second."""
-    delay = 2
+    """Subscribe to the GL UI WebSocket; the router pushes network_quality.status every second.
+
+    The router's stream sometimes goes silent without closing (seen every ~15 minutes), so:
+    - silence longer than STALL_SECONDS counts as a stall and we reconnect at once
+      (well inside the page's 15 s staleness threshold);
+    - a ping every PING_SECONDS keeps the connection from looking idle;
+    - sources are only marked as failed when reconnecting fails, not on a single stall.
+    """
+    STALL_SECONDS, QUIET_STALL_SECONDS, PING_SECONDS = 5, 60, 10
+    delay, failures = 2, 0
     while True:
         try:
             sid = gl.token()
             try:
-                ws = websocket.create_connection(f"ws://{GL_HOST}/ws?sid={sid}", timeout=30)
+                ws = websocket.create_connection(f"ws://{GL_HOST}/ws?sid={sid}", timeout=10)
             except websocket.WebSocketBadStatusException as exc:
                 if exc.status_code == 401:
                     gl.drop(sid)
@@ -522,20 +530,40 @@ def stream_loop(gl, state):
             try:
                 for topic in WS_TOPICS:
                     ws.send(json.dumps({"cmd": "subscribe", "name": topic}))
-                LOG.info("websocket subscribed: %s", ", ".join(WS_TOPICS))
-                delay = 2
+                # Without Network Quality the router pushes nothing: only cable.status changes arrive
+                quiet = (state.data("router") or {}).get("network_quality_enabled") is False
+                ws.settimeout(QUIET_STALL_SECONDS if quiet else STALL_SECONDS)
+                last_ping = time.monotonic()
                 while True:
                     message = json.loads(ws.recv())
+                    if failures:  # data flows again: the failure streak is over
+                        if failures > 2:
+                            LOG.info("websocket recovered after %d failed attempt(s)", failures)
+                        delay, failures = 2, 0
                     name = WS_TOPICS.get(message.get("name"))
                     if name == "quality":
                         SPEEDTEST_TIMES.observe(message.get("data"))
                     if name:
                         state.ok(name, message.get("data"))
+                    if time.monotonic() - last_ping > PING_SECONDS:
+                        ws.ping()
+                        last_ping = time.monotonic()
             finally:
                 ws.close()
-        except Exception as exc:  # reconnect on any failure
-            for name in WS_TOPICS.values():
-                state.fail(name, f"websocket: {exc}")
+        except websocket.WebSocketTimeoutException:
+            # Silent stream: reconnect right away; the data only turns stale if that fails too
+            LOG.debug("websocket stalled, reconnecting")
+            failures += 1
+            if failures > 2:
+                for name in WS_TOPICS.values():
+                    state.fail(name, "websocket: the router stopped sending data")
+                time.sleep(delay)
+                delay = min(60, delay * 2)
+        except Exception as exc:  # connection refused, auth error, closed by the router ...
+            failures += 1
+            if failures > 1:
+                for name in WS_TOPICS.values():
+                    state.fail(name, f"websocket: {exc}")
             time.sleep(delay)
             delay = min(60, delay * 2)
 
@@ -577,6 +605,8 @@ class Speedtest:
                 with self._lock:
                     self._last_start = 0.0  # a failed start should not block a retry
             raise
+        if enable:
+            SPEEDTEST_TIMES.started()
         LOG.info("speed test %s", "started" if enable else "stopped")
         return result
 
@@ -696,6 +726,10 @@ class SpeedtestTimes:
             self.path.write_text(json.dumps({"key": self._key, "finished_at": self._finished}), encoding="utf-8")
         except OSError as exc:
             LOG.warning("speed test time not saved: %s", exc)
+
+    def started(self):
+        """We started a test ourselves: count it even if the stream misses the running state."""
+        self._saw_running = True
 
     def observe(self, data):
         test = (data or {}).get("speedtest")
