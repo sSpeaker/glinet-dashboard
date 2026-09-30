@@ -8,17 +8,22 @@ and serves them next to the start page:
   GET /api/config  -> start page configuration from config/services.yaml {"config", "error"}
   GET /assets/...  -> images from the config folder (background, icons/)
   GET /api/quote   -> quote of the day (ZenQuotes, FavQs as backup), cached on disk
+  GET /api/history -> speed tests, traffic per day and WAN/IP events (data/history.json)
   GET /api/status  -> cached snapshot {"now", "interval", "sources": {name: {data, updated, error}}}
   POST /api/speedtest {"enable": true|false} -> start/stop the router speed test (network-quality.set_speedtest)
   POST /api/background {"url": "https://unsplash.com/photos/..."} | {"reset": true} -> wallpaper set from the page
   POST /api/wan/reconnect {} -> re-dial the WAN (LuCI interface "Restart": /sbin/ifup <wan>)
   POST /api/dns/protection {"enabled": false, "minutes": 30} | {"enabled": true} -> pause/resume AdGuard protection
+  POST /api/vpn {"tunnel_id": 1234, "enabled": true|false} -> VPN client tunnel on/off (vpn-client.set_tunnel)
   GET /media/...   -> the downloaded wallpaper
 
 Sources (all read-only):
   router   GL RPC   /rpc  system.get_status             CPU, memory, load, uptime, WAN online
   quality  GL WS    /ws   network_quality.status        score, latency, loss, live rate, last speed test
   link     GL WS    /ws   cable.status                  WAN protocol, public IP, gateway
+  vpn      GL WS    /ws   vpnclient.status              VPN client tunnels: enabled, connecting/connected
+  health   TCP connect to each tile's addr (host:port) every HEALTH_SECONDS: status dots on the tiles
+  clients  GL RPC   /rpc  clients.get_list              speed and traffic per device, new devices
   wan      LuCI     :8080/ubus  network.interface dump  WAN uptime and L3 device
                                luci-rpc getNetworkDevices  WAN byte counters
   dns      AdGuard  :3000/control/stats, /control/status  (GL sid sent as the Admin-Token cookie)
@@ -29,9 +34,11 @@ import json
 import logging
 import os
 import re
+import socket
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -139,6 +146,29 @@ def normalize_schedule(value):
     return value
 
 
+HOST_PORT = re.compile(r"[\w.-]+:\d{1,5}")
+
+
+def health_target(service, where, url):
+    """host:port probed for the tile's status dot, or "" for no check.
+
+    Default: the service's addr when it is host:port (LAN backends). check: false turns it off,
+    check: url probes the host of url (port 443/80 by scheme), check: host:port probes that.
+    """
+    check = service.get("check", True)
+    addr = str(service.get("addr") or "").strip()
+    if check is True or check is None:
+        return addr if HOST_PORT.fullmatch(addr) else ""
+    if check is False:
+        return ""
+    if str(check) == "url":
+        parts = urlsplit(url)
+        return f"{parts.hostname}:{parts.port or (443 if parts.scheme == 'https' else 80)}"
+    if HOST_PORT.fullmatch(str(check)):
+        return str(check)
+    raise ValueError(f"{where}: check must be true, false, url or host:port")
+
+
 def normalize_config(raw):
     """Validate services.yaml and fill defaults; raises ValueError with a readable location."""
     if not isinstance(raw, dict):
@@ -168,6 +198,7 @@ def normalize_config(raw):
                 "icon": asset_url(service["icon"], f"{where} ({name}): icon", "icons") if service.get("icon") else "",
                 "icon_dark": (asset_url(service["icon_dark"], f"{where} ({name}): icon_dark", "icons")
                               if service.get("icon_dark") else ""),
+                "check": health_target(service, f"{where} ({name})", url),
             })
         groups.append({"name": str(group["name"]), "services": services})
     return {
@@ -228,11 +259,12 @@ LUCI_PORT = int(os.environ.get("LUCI_PORT", "8080"))
 ADGUARD_PORT = int(os.environ.get("ADGUARD_PORT", "3000"))
 WAN_INTERFACE = os.environ.get("WAN_INTERFACE", "wan")
 POLL_SECONDS = min(60, max(5, int(os.environ.get("POLL_SECONDS", "5"))))
+HEALTH_SECONDS = min(600, max(15, int(os.environ.get("HEALTH_SECONDS", "60"))))
 TOP_N = int(os.environ.get("TOP_N", "10"))
 PORT = int(os.environ.get("PORT", "3100"))
 
 # WebSocket topic -> source name in the snapshot
-WS_TOPICS = {"network_quality.status": "quality", "cable.status": "link"}
+WS_TOPICS = {"network_quality.status": "quality", "cable.status": "link", "vpnclient.status": "vpn"}
 
 
 class AuthError(Exception):
@@ -441,11 +473,115 @@ def poll_router(gl):
     }
 
 
+def router_now():
+    """Current router local time from its tzoffset (follows DST); container local time until the router answered."""
+    offset = re.fullmatch(r"([+-])(\d\d)(\d\d)", str((STATE.data("router") or {}).get("tzoffset") or ""))
+    if not offset:
+        return datetime.now()
+    seconds = (int(offset[2]) * 3600 + int(offset[3]) * 60) * (-1 if offset[1] == "-" else 1)
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).replace(tzinfo=None)
+
+
+class History:
+    """Long-term history in data/history.json, shown in the page's History window.
+
+    - speedtests: one entry per finished test (time, download/upload Mbps, ping, bufferbloat);
+    - traffic: bytes received/sent per router-local day, summed from WAN counter deltas, so a
+      PPPoE reconnect (counters back to 0) does not lose the day;
+    - events: WAN down/up/reconnect and public IP changes.
+    Written at most once a minute (plus right after a new speed test or event).
+    """
+
+    KEEP_TESTS, KEEP_DAYS, KEEP_EVENTS = 400, 400, 300
+    FLUSH_SECONDS = 60
+
+    def __init__(self, path):
+        self.path = path
+        self._lock = threading.Lock()
+        self._dirty = False
+        self._flushed = 0.0
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            data = {}
+        except (OSError, ValueError) as exc:
+            LOG.warning("history unreadable, starting empty: %s", exc)
+            data = {}
+        self._tests = list(data.get("speedtests") or [])
+        self._traffic = dict(data.get("traffic") or {})
+        self._events = list(data.get("events") or [])
+        self._last_ip = data.get("last_ip")
+
+    def _save(self, force=False):
+        """Caller holds the lock."""
+        if not self._dirty or (not force and time.monotonic() - self._flushed < self.FLUSH_SECONDS):
+            return
+        days = sorted(self._traffic)[-self.KEEP_DAYS:]
+        data = {"speedtests": self._tests[-self.KEEP_TESTS:], "traffic": {d: self._traffic[d] for d in days},
+                "events": self._events[-self.KEEP_EVENTS:], "last_ip": self._last_ip}
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data), encoding="utf-8")
+            tmp.replace(self.path)
+            self._dirty, self._flushed = False, time.monotonic()
+        except OSError as exc:
+            LOG.warning("history not saved: %s", exc)
+
+    def add_traffic(self, rx, tx):
+        day = router_now().strftime("%Y-%m-%d")
+        with self._lock:
+            total = self._traffic.setdefault(day, [0, 0])
+            total[0] += rx
+            total[1] += tx
+            self._dirty = True
+            self._save()
+
+    def add_speedtest(self, finished_at, test):
+        entry = {"t": round(finished_at), "down": round(float(test.get("download") or 0), 1),
+                 "up": round(float(test.get("upload") or 0), 1), "ping": test.get("ping"),
+                 "bufferbloat": test.get("bufferbloat")}
+        with self._lock:
+            self._tests.append(entry)
+            self._dirty = True
+            self._save(force=True)
+
+    def event(self, kind, text):
+        with self._lock:
+            self._events.append({"t": round(time.time()), "kind": kind, "text": text})
+            self._dirty = True
+            self._save(force=True)
+        LOG.info("history event: %s", text)
+
+    def observe_ip(self, ip):
+        if not ip:
+            return
+        with self._lock:
+            previous, self._last_ip = self._last_ip, ip
+            if previous == ip:
+                return
+            self._dirty = True
+        if previous:
+            self.event("ip", f"Public IP changed: {previous} → {ip}")
+        else:
+            with self._lock:
+                self._save(force=True)
+
+    def snapshot(self):
+        with self._lock:
+            days = sorted(self._traffic)[-62:]
+            return {"speedtests": self._tests[-120:], "traffic": [[d, *self._traffic[d]] for d in days],
+                    "events": self._events[-60:][::-1], "today": router_now().strftime("%Y-%m-%d")}
+
+
 class WanCounters:
-    """WAN byte counters from the L3 device (pppoe-wan for PPPoE); rates are derived between polls."""
+    """WAN byte counters from the L3 device (pppoe-wan for PPPoE); rates are derived between polls.
+    Also feeds the history: bytes per day and WAN down/up/reconnect events."""
 
     def __init__(self):
         self._prev = None
+        self._link = None  # (up, uptime, time) of the previous poll, for down/up/reconnect events
+        self._down_since = None
 
     def poll(self, luci):
         interfaces = luci.call("network.interface", "dump")["interface"]
@@ -461,7 +597,12 @@ class WanCounters:
         if prev and prev[0] == device and rx is not None and rx >= prev[1] and tx >= prev[2]:
             elapsed = now - prev[3]
             rx_rate, tx_rate = (rx - prev[1]) / elapsed, (tx - prev[2]) / elapsed
+        # Daily totals: a counter that went backwards restarted from 0 (reconnect), so count from 0
+        if prev and rx is not None and tx is not None and prev[1] is not None:
+            same = prev[0] == device and rx >= prev[1] and tx >= prev[2]
+            HISTORY.add_traffic(rx - prev[1] if same else rx, tx - prev[2] if same else tx)
         self._prev = (device, rx, tx, now) if rx is not None else None
+        self._track_link(bool(iface.get("up")), iface.get("uptime"))
         return {
             "interface": WAN_INTERFACE,
             "device": device,
@@ -473,6 +614,31 @@ class WanCounters:
             "rx_rate": rx_rate,
             "tx_rate": tx_rate,
         }
+
+    def _track_link(self, up, uptime):
+        """WAN events for the history: down, back up (with how long it was down), silent reconnect."""
+        previous, self._link = self._link, (up, uptime, time.time())
+        if previous is None:
+            return
+        was_up, was_uptime, was_at = previous
+        if was_up and not up:
+            self._down_since = was_at
+            HISTORY.event("down", "WAN went down")
+        elif not was_up and up:
+            since = self._down_since
+            HISTORY.event("up", f"WAN is back up (down for {_duration(time.time() - since)})" if since else "WAN is back up")
+        elif up and uptime is not None and was_uptime is not None and uptime < was_uptime:
+            HISTORY.event("reconnect", f"WAN reconnected (was up {_duration(was_uptime)})")
+
+
+def _duration(seconds):
+    """Human duration for event texts: "6 d 22 h", "3 h 5 min", "1 min 2 s", "40 s"."""
+    seconds = int(seconds)
+    if seconds >= 86400:
+        return f"{seconds // 86400} d {seconds % 86400 // 3600} h"
+    if seconds >= 3600:
+        return f"{seconds // 3600} h {seconds % 3600 // 60} min"
+    return f"{seconds // 60} min {seconds % 60} s" if seconds >= 60 else f"{seconds} s"
 
 
 def poll_dns(gl):
@@ -506,7 +672,8 @@ def poll_dns(gl):
 
 def poll_loop(gl, luci, state):
     wan = WanCounters()
-    jobs = (("router", lambda: poll_router(gl)), ("wan", lambda: wan.poll(luci)), ("dns", lambda: poll_dns(gl)))
+    jobs = (("router", lambda: poll_router(gl)), ("wan", lambda: wan.poll(luci)), ("dns", lambda: poll_dns(gl)),
+            ("clients", lambda: DEVICES.poll(gl)))
     while True:
         started = time.monotonic()
         for name, job in jobs:
@@ -553,6 +720,9 @@ def stream_loop(gl, state):
                     name = WS_TOPICS.get(message.get("name"))
                     if name == "quality":
                         SPEEDTEST_TIMES.observe(message.get("data"))
+                    elif name == "link":
+                        ip = str(((message.get("data") or {}).get("ipv4") or {}).get("ip") or "").split("/")[0]
+                        HISTORY.observe_ip(ip)
                     if name:
                         state.ok(name, message.get("data"))
                     if time.monotonic() - last_ping > PING_SECONDS:
@@ -753,6 +923,7 @@ class SpeedtestTimes:
             if self._saw_running:
                 self._key, self._finished = key, time.time()
                 self._save()
+                HISTORY.add_speedtest(self._finished, test)
             elif key != self._key:
                 self._key, self._finished = key, None
                 self._save()
@@ -807,7 +978,232 @@ class WanReconnect:
         return {"previous_ip": previous, "started": time.time()}
 QUOTES = QuoteOfTheDay(Path(os.environ.get("QUOTE_CACHE", ROOT / "data" / "quotes.json")))
 SPEEDTEST_TIMES = SpeedtestTimes(ROOT / "data" / "speedtest.json")
+HISTORY = History(ROOT / "data" / "history.json")
+
+
+class VpnTunnels:
+    """Turns VPN client tunnels on or off, the same call as the power switch on the GL VPN Dashboard:
+    vpn-client.set_tunnel {tunnel_id, enabled}. The tunnel must exist and, to be turned on, have a
+    VPN server selected (as the GL UI requires). One switch per MIN_INTERVAL."""
+
+    MIN_INTERVAL = 5
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._last = 0.0
+
+    def set(self, tunnel_id, enabled):
+        with self._lock:
+            if time.monotonic() - self._last < self.MIN_INTERVAL:
+                raise Conflict("a VPN tunnel was switched a moment ago, try again in a few seconds")
+            self._last = time.monotonic()
+        tunnels = (GL.call("vpn-client", "get_tunnel") or {}).get("tunnels") or []
+        tunnel = next((t for t in tunnels if t.get("tunnel_id") == tunnel_id), None)
+        if tunnel is None:
+            raise ValueError(f"no VPN tunnel with id {tunnel_id}")
+        via = tunnel.get("via") or {}
+        configs = via.get("configs") or []
+        if enabled and via.get("type") != "novpn" and not (configs and (configs[0] or {}).get("id_list")):
+            raise Conflict("this tunnel has no VPN server selected yet; choose one on the router's VPN Dashboard")
+        GL.call("vpn-client", "set_tunnel", {"tunnel_id": tunnel_id, "enabled": enabled}, timeout=30)
+        LOG.info("VPN tunnel %s turned %s", tunnel.get("name"), "on" if enabled else "off")
+        HISTORY.event("vpn", f"VPN {tunnel.get('name')} turned {'on' if enabled else 'off'} from the dashboard")
+        return {"name": tunnel.get("name")}
+
+
+VPN = VpnTunnels()
+
+
+class VpnExit:
+    """External IP seen through a connected VPN tunnel; the router does not report it.
+
+    The collector asks an IP service from its own host (ifconfig.co, ipinfo.io as backup), so the
+    answer is the tunnel's exit only when this host's traffic goes through the tunnel. It is compared
+    with the WAN IP and with the IP seen while no tunnel is on (baseline); when it matches either,
+    the result is flagged as not routed instead of being shown as the VPN address.
+    """
+
+    CHECK_SECONDS, REFRESH_SECONDS, BASELINE_SECONDS, SETTLE_SECONDS = 15, 600, 1800, 3
+
+    def __init__(self, state):
+        self._state = state
+        self._baseline, self._baseline_at = None, -1e9
+        self._key, self._checked = None, -1e9
+
+    @staticmethod
+    def lookup():
+        errors = []
+        for url, country_field in (("https://ifconfig.co/json", "country"), ("https://ipinfo.io/json", "country")):
+            try:
+                data = get_json(url, timeout=6)
+                return {"ip": data["ip"], "city": data.get("city") or "", "country": data.get(country_field) or ""}
+            except Exception as exc:  # rate limit, network, changed format: try the next service
+                errors.append(f"{url.split('/')[2]}: {exc}")
+        raise RuntimeError("IP lookup failed: " + "; ".join(errors))
+
+    def check(self):
+        status = self._state.data("vpn")
+        if status is None:
+            return  # the router has not reported its tunnels yet: do not take a baseline blindly
+        tunnels = status.get("status_list") or []
+        now = time.monotonic()
+        if not any(t.get("enabled") for t in tunnels):
+            if self._key is not None:
+                self._key = None
+                self._state.ok("vpn_exit", None)
+            if now - self._baseline_at > self.BASELINE_SECONDS:
+                self._baseline_at = now
+                try:
+                    self._baseline = self.lookup()["ip"]
+                except RuntimeError as exc:
+                    LOG.debug("baseline IP: %s", exc)
+            return
+        key = tuple(sorted(t["tunnel_id"] for t in tunnels if t.get("enabled") and t.get("status") == 1))
+        if not key:
+            return  # still connecting
+        if key == self._key and now - self._checked < self.REFRESH_SECONDS:
+            return
+        if key != self._key:
+            time.sleep(self.SETTLE_SECONDS)  # let the router finish switching routes
+        found = self.lookup()
+        wan_ip = str(((self._state.data("link") or {}).get("ipv4") or {}).get("ip") or "").split("/")[0]
+        found.update(tunnels=list(key), checked=time.time(), routed=found["ip"] not in (wan_ip, self._baseline))
+        self._key, self._checked = key, now
+        self._state.ok("vpn_exit", found)
+        LOG.info("VPN exit IP: %s (%s, %s)%s", found["ip"], found["city"], found["country"],
+                 "" if found["routed"] else " - this host does not use the tunnel")
+
+    def loop(self):
+        while True:
+            try:
+                self.check()
+            except Exception as exc:  # lookup failed: keep the last result, retry soon
+                self._state.fail("vpn_exit", exc)
+            time.sleep(self.CHECK_SECONDS)
+
+
+VPN_EXIT = VpnExit(STATE)
+
+
+class Devices:
+    """Router clients (the GL UI's Clients page): current speed and traffic per device, and new devices.
+
+    rx/tx are the device's download/upload in bytes/s, total_rx/total_tx its traffic as counted by
+    the router. Every MAC seen is remembered in data/devices.json; one that was never seen before
+    adds a "New device" event to the history and is flagged as new for NEW_SECONDS. On the very
+    first run the devices already present are just remembered, not reported.
+    """
+
+    NEW_SECONDS = 86400
+
+    def __init__(self, path):
+        self.path = path
+        try:
+            self._known = dict(json.loads(path.read_text(encoding="utf-8")).get("known") or {})
+        except (OSError, ValueError):
+            self._known = {}
+        self._seeded = bool(self._known)
+
+    def _save(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"known": self._known}), encoding="utf-8")
+            tmp.replace(self.path)
+        except OSError as exc:
+            LOG.warning("device list not saved: %s", exc)
+
+    def poll(self, gl):
+        clients = (gl.call("clients", "get_list") or {}).get("clients") or []
+        now, changed, devices = time.time(), False, []
+        for c in clients:
+            mac = str(c.get("mac") or "").upper()
+            if not mac:
+                continue
+            name = str(c.get("alias") or c.get("name") or mac)
+            if mac not in self._known:
+                self._known[mac] = now if self._seeded else 0  # 0: already here when tracking started
+                changed = True
+                if self._seeded:
+                    HISTORY.event("device", f"New device: {name} ({c.get('ip') or 'no IP'}, {mac})")
+            online = bool(c.get("online"))
+            first_seen = self._known[mac]
+            devices.append({
+                "mac": mac, "name": name, "ip": c.get("ip") or "", "iface": c.get("iface") or "",
+                "class": c.get("class") or "", "online": online,
+                "down": (c.get("rx") or 0) if online else 0, "up": (c.get("tx") or 0) if online else 0,
+                "total_down": int(c.get("total_rx") or 0), "total_up": int(c.get("total_tx") or 0),
+                "since": c.get("online_time") if online else None,
+                "new": bool(first_seen) and now - first_seen < self.NEW_SECONDS,
+            })
+        if not self._seeded:
+            self._seeded = True
+            LOG.info("device list: remembered %d devices already in the network", len(self._known))
+        if changed:
+            self._save()
+        devices.sort(key=lambda d: (not d["online"], -d["down"], d["name"].lower()))
+        return {"devices": devices}
+
+
+DEVICES = Devices(ROOT / "data" / "devices.json")
 WAN_RECONNECT = WanReconnect(LUCI, STATE)
+
+
+class HealthChecks:
+    """Status dots on the service tiles: a TCP connect to each tile's check target every HEALTH_SECONDS.
+
+    A failed connect is retried once after a second, so a single dropped packet does not turn a
+    tile red. Results are keyed by target and keep the time of the last up/down change.
+    """
+
+    TIMEOUT = 3
+
+    def __init__(self, state):
+        self._state = state
+        self._last = {}
+
+    @classmethod
+    def probe(cls, target):
+        host, port = target.rsplit(":", 1)
+        error = None
+        for attempt in (1, 2):
+            started = time.monotonic()
+            try:
+                with socket.create_connection((host, int(port)), timeout=cls.TIMEOUT):
+                    return True, round((time.monotonic() - started) * 1000), None
+            except OSError as exc:
+                error = exc.strerror or str(exc) or type(exc).__name__
+                if attempt == 1:
+                    time.sleep(1)
+        return False, None, error
+
+    def run_once(self):
+        config = SITE.get()["config"]
+        if not config:
+            return
+        targets = sorted({svc["check"] for group in config["groups"] for svc in group["services"] if svc["check"]})
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            results = dict(zip(targets, pool.map(self.probe, targets)))
+        now, current = time.time(), {}
+        for target, (up, ms, error) in results.items():
+            previous = self._last.get(target)
+            since = previous["since"] if previous and previous["up"] == up else now
+            if previous and previous["up"] != up:
+                LOG.info("service %s is %s%s", target, "up" if up else "down", "" if up else f" ({error})")
+            current[target] = {"up": up, "ms": ms, "error": error, "since": since}
+        self._last = current
+        self._state.ok("health", current)
+
+    def loop(self):
+        while True:
+            try:
+                self.run_once()
+            except Exception as exc:  # never let the checker thread die
+                self._state.fail("health", exc)
+            time.sleep(HEALTH_SECONDS)
+
+
+HEALTH = HealthChecks(STATE)
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -1028,12 +1424,7 @@ class SpeedtestSchedule:
             self._last = None
 
     def _router_now(self):
-        """Current router local time from its tzoffset; container local time until the router answered."""
-        offset = re.fullmatch(r"([+-])(\d\d)(\d\d)", str((self._state.data("router") or {}).get("tzoffset") or ""))
-        if not offset:
-            return datetime.now()
-        seconds = (int(offset[2]) * 3600 + int(offset[3]) * 60) * (-1 if offset[1] == "-" else 1)
-        return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).replace(tzinfo=None)
+        return router_now()
 
     def _done(self, day):
         self._last = day
@@ -1122,6 +1513,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
         elif path == "/api/quote":
             self._json(200, QUOTES.current())
+        elif path == "/api/history":
+            self._json(200, HISTORY.snapshot())
         elif path.startswith("/assets/"):
             self._asset(path[len("/assets/"):])
         elif path in ("/", "/index.html"):
@@ -1147,7 +1540,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if path not in ("/api/speedtest", "/api/background", "/api/wan/reconnect", "/api/dns/protection"):
+        if path not in ("/api/speedtest", "/api/background", "/api/wan/reconnect", "/api/dns/protection", "/api/vpn"):
             self.send_error(404)
             return
         body = self._read_json()
@@ -1158,6 +1551,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/dns/protection":
             self._protection(body)
+            return
+        if path == "/api/vpn":
+            tunnel_id, enabled = body.get("tunnel_id"), body.get("enabled")
+            if not isinstance(tunnel_id, int) or isinstance(tunnel_id, bool) or not isinstance(enabled, bool):
+                self._json(400, {"error": "body must be {\"tunnel_id\": <number>, \"enabled\": true|false}"})
+                return
+            try:
+                self._json(200, {"ok": True, **VPN.set(tunnel_id, enabled)})
+            except ValueError as exc:
+                self._json(400, {"error": str(exc)})
+            except Conflict as exc:
+                self._json(409, {"error": str(exc)})
+            except Exception as exc:  # router unreachable or refused
+                LOG.warning("VPN: %s", exc)
+                self._json(502, {"error": f"router: {exc}"})
             return
         if path == "/api/wan/reconnect":
             try:
@@ -1227,5 +1635,7 @@ if __name__ == "__main__":
     threading.Thread(target=stream_loop, args=(GL, STATE), name="stream", daemon=True).start()
     threading.Thread(target=QUOTES.loop, name="quotes", daemon=True).start()
     threading.Thread(target=SCHEDULE.loop, name="schedule", daemon=True).start()
+    threading.Thread(target=HEALTH.loop, name="health", daemon=True).start()
+    threading.Thread(target=VPN_EXIT.loop, name="vpn-exit", daemon=True).start()
     LOG.info("serving on :%d, polling %s every %d s", PORT, GL_HOST, POLL_SECONDS)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

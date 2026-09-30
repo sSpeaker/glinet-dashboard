@@ -17,7 +17,8 @@ to tiles for your homelab services. One small container, one port, configured wi
 - **Internet:**
   - live download/upload rate with a 30-second chart;
   - public IP and protocol, bytes received/sent and WAN uptime;
-  - a ↻ button next to the IP re-dials the WAN to get a new IP (after a confirmation).
+  - a ↻ button next to the IP re-dials the WAN to get a new IP (after a confirmation);
+  - "Now:" shows the three devices downloading the most right now.
 - **Network quality:** the same data as the GL.iNet *Network Quality* page:
   - score and level;
   - internet, gateway and DNS latency, jitter;
@@ -34,12 +35,19 @@ to tiles for your homelab services. One small container, one port, configured wi
 - **Services:**
   - grouped tiles with icons that open in the same tab, like a browser start page;
   - instant filter: `/` to focus, Enter opens the first match, Cmd/Ctrl+Enter opens it in a new tab;
-  - the LAN address shows in the tooltip.
+  - the LAN address shows in the tooltip;
+  - a status dot on every tile with a `host:port` address (TCP check every minute), the tooltip says since when a service is down, and the heading counts services that are down.
 - **Start page extras:**
   - Google search box, clock and a tab icon;
   - quote of the day in the bottom-left corner, downloaded daily and cached for offline use;
   - background image with the photographer and location in the bottom-right corner: set it in the config, or paste an Unsplash photo link on the page (see [Wallpaper from the page](#wallpaper-from-the-page));
   - light/dark/auto theme with a switch.
+- **VPN** (button next to the *Network* heading, showing *VPN off* or the active tunnel): the router's VPN client tunnels with their state (off / connecting / connected) and a *Turn on* / *Turn off* switch each, the same as on the GL VPN Dashboard; turning one on asks for confirmation. A connected tunnel shows its external IP and location, looked up by the collector through the tunnel (ifconfig.co, ipinfo.io as backup); if the dashboard's own host does not use the tunnel, it says so instead of showing a wrong IP.
+- **Devices** (button next to the *Network* heading, or click "N clients"): every device from the router's client list with its IP, 2.4G/5G/cable, current download/upload, traffic and connected time; sortable, offline devices collapsed. A device never seen before is marked *new* for 24 hours and logged in the history.
+- **History** (button next to the *Network* heading), kept in `/app/data/history.json`:
+  - every speed test over time;
+  - traffic received/sent per day for the last 30 days, with today, 7-day and monthly totals;
+  - WAN drops, reconnects, public IP changes and new devices.
 - **Fits one screen** and scales up to fill large displays.
 - **Live configuration:** edits to `services.yaml` show up within 30 seconds, without a restart or rebuild. Mistakes are reported on the page while the last valid version keeps working.
 
@@ -152,6 +160,7 @@ groups:
         icon: plex.svg                     # file in config/icons/ or an https:// URL
         icon_dark: plex-light.svg          # optional variant for the dark theme
         mark: PL                           # letters shown when there is no icon
+        # check: false                     # status dot: default checks addr; false | url | host:port
 ```
 
 **Icons:** the example ships icons from [dashboard-icons](https://github.com/homarr-labs/dashboard-icons). Find more at
@@ -185,6 +194,7 @@ To get a key:
 | `ADGUARD_PORT` | `3000` | AdGuard Home port on the router |
 | `WAN_INTERFACE` | `wan` | OpenWrt interface name of the WAN |
 | `POLL_SECONDS` | `5` | Poll interval, 5-60 |
+| `HEALTH_SECONDS` | `60` | Service status check interval, 15-600 |
 | `TOP_N` | `10` | Number of top domains kept |
 | `PORT` | `3100` | HTTP port inside the container |
 
@@ -198,9 +208,12 @@ The page is a single static HTML file served by the same process.
 |---|---|
 | Network quality, live rate, speed test | GL web UI WebSocket `ws://<router>/ws`, topic `network_quality.status` (pushed every second) |
 | WAN protocol and public IP | same WebSocket, topic `cable.status` |
+| VPN tunnels | same WebSocket, topic `vpnclient.status`; switched with `vpn-client.set_tunnel {tunnel_id, enabled}` like the GL VPN Dashboard |
 | Router CPU, memory, clients | GL JSON-RPC `system.get_status` |
+| Devices, "Now:" | GL JSON-RPC `clients.get_list` (the GL UI's Clients page); known MACs in `/app/data/devices.json` |
 | WAN byte counters, uptime | LuCI ubus: `network.interface dump`, `luci-rpc getNetworkDevices` |
 | DNS | AdGuard Home `:3000/control/stats` (AdGuard runs with `--glinet` and accepts the GL session cookie) |
+| Service status dots | TCP connect to each tile's `addr` (or `check`) from the container, retried once |
 | Quote of the day | [ZenQuotes](https://zenquotes.io/), [FavQs](https://favqs.com/) as backup; cached in `/app/data` |
 | WAN reconnect (↻) | LuCI ubus `file.exec` of `/sbin/ifup <wan>`, the same as the *Restart* button of an interface in LuCI |
 | Wallpaper from the page | Unsplash download link (author from its file name) or, with `UNSPLASH_ACCESS_KEY`, the Unsplash API (author and location); stored in `/app/data/wallpapers` |
@@ -208,8 +221,9 @@ The page is a single static HTML file served by the same process.
 Endpoints: `GET /api/status`, `GET /api/config`, `GET /api/quote`, `GET /assets/…` (images from the config folder),
 `POST /api/speedtest` with `{"enable": true|false}`, `POST /api/wan/reconnect` with `{}`,
 `POST /api/dns/protection` with `{"enabled": false, "minutes": 30}` or `{"enabled": true}`,
+`POST /api/vpn` with `{"tunnel_id": 1234, "enabled": true|false}`,
 `POST /api/background` with `{"url": "https://unsplash.com/photos/...", "location": "..."}`, `{"location": "..."}` or `{"reset": true}`,
-`GET /media/…` (the wallpaper set from the page).
+`GET /media/…` (the wallpaper set from the page), `GET /api/history`.
 
 Notes:
 
@@ -219,13 +233,14 @@ Notes:
 
 ## Security
 
-- **Router access:** all calls are read-only, with three exceptions, and none of them changes a saved setting:
+- **Router access:** all calls are read-only, with four exceptions:
   - starting/stopping the speed test uses the same call as the GL UI button;
   - the WAN reconnect runs `ifup` like LuCI's interface *Restart*;
-  - pausing/resuming AdGuard protection uses AdGuard's own `/control/protection` call; a pause ends by itself.
+  - pausing/resuming AdGuard protection uses AdGuard's own `/control/protection` call; a pause ends by itself;
+  - turning a VPN tunnel on/off sets that tunnel's *enabled* flag, exactly what the VPN Dashboard switch does; servers, routing and kill switch are not touched.
 - **Safe to leave running:** failed logins back off exponentially (15 s up to 10 min), so a wrong password cannot trigger the router's brute-force lockout.
 - **No authentication on the dashboard itself.** Keep it on your LAN or VPN, for example behind a reverse proxy with an internal-only DNS name, and do not expose it to the internet.
-- **Action endpoints:** all `POST` endpoints only accept `Content-Type: application/json`, which blocks cross-site form posts. Speed test starts and WAN reconnects are limited to one per minute, and the page asks before reconnecting.
+- **Action endpoints:** all `POST` endpoints only accept `Content-Type: application/json`, which blocks cross-site form posts. Speed test starts and WAN reconnects are limited to one per minute, VPN switches to one per 5 s; the page asks before reconnecting the WAN and before turning a VPN on.
 - **Wallpaper downloads:** the collector only fetches unsplash.com / images.unsplash.com for wallpapers, so it cannot be used to reach arbitrary or internal URLs. `UNSPLASH_ACCESS_KEY` is read from the environment like `GL_PASS`.
 - **Container hardening:** read-only root filesystem, all capabilities dropped, runs as an unprivileged user. SVG assets are served with a CSP that blocks scripts.
 

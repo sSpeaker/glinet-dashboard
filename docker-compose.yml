@@ -24,6 +24,7 @@ services:
       ADGUARD_PORT: "3000"
       WAN_INTERFACE: wan
       POLL_SECONDS: "5"
+      HEALTH_SECONDS: "60"      # service status dots: TCP check interval (15-600)
       TOP_N: "10"
       PORT: "3100"
       # The router address comes from network.router in config/services.yaml; GL_HOST overrides it

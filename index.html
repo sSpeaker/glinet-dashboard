@@ -60,19 +60,19 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 0.875rem/1.45 v
    cards and inputs keep the theme colours */
 body.bg-dark #backdrop::after { background: #0d1220; }
 body.bg-light #backdrop::after { background: #eef1f6; }
-body.bg-dark :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
+body.bg-dark :is(header .brand, header .clock, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
   --fg: #e6eaf5; --muted: #b4bdd3; --line: rgb(255 255 255 / 0.22); --accent: #7d9bff;
 }
-body.bg-light :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
+body.bg-light :is(header .brand, header .clock, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
   --fg: #16203a; --muted: #4a5470; --line: rgb(22 32 58 / 0.2); --accent: #2f55d4;
 }
 body:is(.bg-dark, .bg-light) :is(header .brand, header .clock) { color: var(--fg); }
 /* Keep text readable over busy/bright parts of the photo: a soft shadow in the opposite tone,
    and the quote in the main text colour instead of the muted one */
-body.bg-dark :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
+body.bg-dark :is(header .brand, header .clock, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 0.75rem rgb(0 0 0 / 0.55);
 }
-body.bg-light :is(header .brand, header .clock, #live > h2, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
+body.bg-light :is(header .brand, header .clock, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
   text-shadow: 0 1px 2px rgb(255 255 255 / 0.8), 0 0 0.75rem rgb(255 255 255 / 0.6);
 }
 body:is(.bg-dark, .bg-light) footer q { color: var(--fg); }
@@ -129,6 +129,12 @@ section h2::after { content: ""; flex: 1; height: 1px; background: var(--line); 
 .sub:empty::before { content: "\00a0"; }
 /* Service icons; icon_dark replaces icon when the dark theme is active */
 .mark.has-icon { padding: 0.25rem; }
+/* Status dot in the top-right corner of the tile: green up, red down, grey until the first check */
+.tile { position: relative; padding-right: 1.375rem; }
+.tile > .health { position: absolute; top: 0.5rem; right: 0.5rem; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--line); }
+.tile > .health.up { background: var(--good); }
+.tile > .health.down { background: var(--critical); }
+.svc-down { display: inline-flex; align-items: center; gap: 0.375rem; color: var(--critical); letter-spacing: 0.06em; }
 .mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .mark .icon-dark { display: none; }
 @media (prefers-color-scheme: dark) {
@@ -166,6 +172,46 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn:disabled { opacity: 0.55; cursor: default; }
+/* History window */
+#history, #devices, #vpn { width: min(64rem, 94vw); max-height: 90vh; padding: 0; border: 1px solid var(--line); border-radius: 0.875rem; background: var(--surface); color: var(--fg); box-shadow: 0 1rem 3rem rgb(0 0 0 / 0.35); }
+#history::backdrop, #devices::backdrop, #vpn::backdrop { background: rgb(0 0 0 / 0.5); }
+#vpn { width: min(30rem, 94vw); }
+.vpn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.vpn-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.25rem 1rem; padding: 0.625rem 0.75rem; border: 1px solid var(--line); border-radius: 0.625rem; }
+.vpn-list .vpn-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vpn-list .vpn-state { grid-column: 1; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; color: var(--muted); font-size: 0.75rem; }
+.vpn-list .btn { grid-column: 2; grid-row: 1 / span 2; }
+#vpn-open .sdot { width: 0.4375rem; height: 0.4375rem; }
+.dev-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+.dev-table th { padding: 0.25rem 0.5rem; text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.dev-table td { padding: 0.3125rem 0.5rem; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent); white-space: nowrap; }
+.dev-table .num { text-align: right; }
+.dev-table th button { all: unset; cursor: pointer; }
+.dev-table th button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.dev-table th button[aria-sort]::after { content: " ▾"; }
+.dev-table th button[aria-sort="ascending"]::after { content: " ▴"; }
+.dev-table td.name { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+.dev-table .quiet { color: var(--muted); }
+.dev-new { margin-left: 0.375rem; padding: 0 0.3125rem; border-radius: 0.25rem; background: var(--accent-soft); color: var(--accent); font-size: 0.6875rem; font-weight: 600; }
+[data-hint]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.top-now { display: block; width: 100%; padding: 0; border: 0; background: none; text-align: left; font: inherit; font-size: 0.75rem; color: var(--muted); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-now:hover { color: var(--fg); }
+.top-now b { font-weight: 600; color: var(--fg); }
+.ip-link { color: inherit; text-decoration: underline dotted; text-underline-offset: 0.2em; }
+.ip-link:hover { color: var(--accent); }
+.link-btn { padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 0.2em; }
+.link-btn:hover { color: var(--accent); }
+.hist-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--line); }
+.hist-head h2 { margin: 0; font: 600 1rem var(--body); }
+.hist-body { display: grid; gap: 1.5rem; padding: 1rem 1.25rem 1.25rem; }
+.hist-block { display: grid; gap: 0.625rem; }
+.hist-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; font-size: 0.8125rem; }
+.hist-title h3 { margin: 0; font: 600 0.875rem var(--body); }
+.hist-title .muted { margin-left: auto; }
+.hist-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.375rem; font-size: 0.8125rem; max-height: 12rem; overflow: auto; }
+.hist-events li { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 0.75rem; }
+.hist-events time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.hist-empty { margin: 0; color: var(--muted); font-size: 0.8125rem; }
 .chip-status { display: inline-flex; align-items: center; gap: 0.3125rem; color: var(--fg); }
 .chip-status .sdot { width: 0.4375rem; height: 0.4375rem; }
 .icon-btn { display: grid; place-items: center; width: 1.375rem; height: 1.375rem; padding: 0; border: 0; border-radius: 0.375rem; background: none; color: var(--muted); cursor: pointer; opacity: 0.7; }
@@ -229,6 +275,8 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 
 .dns-body { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 0.625rem 1.25rem; }
 @media (max-width: 560px) { .dns-body { grid-template-columns: minmax(0, 1fr); } }
+/* DNS stats: columns as wide as their values, so long numbers never run into each other */
+.dns-main .stats { grid-template-columns: repeat(3, auto); justify-content: space-between; column-gap: 1rem; }
 .dns-main, .ranks { display: grid; gap: 0.5rem; align-content: start; min-width: 0; }
 .rank h4 { margin: 0 0 0.25rem; font: 600 0.75rem var(--body); color: var(--muted); }
 .rank ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; }
@@ -301,7 +349,12 @@ details th { color: var(--muted); font-weight: 500; }
 
   <!-- Live data from the collector (/api/status); stays hidden when the page is opened without it -->
   <section id="live" hidden aria-labelledby="live-title">
-    <h2 id="live-title">Network <span class="live-state"><i class="sdot" id="live-dot"></i><span id="live-text">Live</span></span></h2>
+    <div class="section-head">
+      <h2 id="live-title">Network <span class="live-state"><i class="sdot" id="live-dot"></i><span id="live-text">Live</span></span></h2>
+      <button type="button" class="btn" id="vpn-open" aria-haspopup="dialog" hidden><i class="sdot" id="vpn-dot"></i><span id="vpn-label">VPN</span></button>
+      <button type="button" class="btn" id="devices-open" aria-haspopup="dialog">Devices</button>
+      <button type="button" class="btn" id="history-open" aria-haspopup="dialog">History</button>
+    </div>
     <div class="live-grid">
       <article class="card">
         <div class="card-head">
@@ -312,18 +365,18 @@ details th { color: var(--muted); font-weight: 500; }
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
           </button>
         </div>
-        <div class="stats">
+        <div class="stats" id="wan-speeds" tabindex="0">
           <div class="stat"><div class="label"><i class="key s1"></i>Download</div><div class="value" id="wan-down">–</div></div>
           <div class="stat"><div class="label"><i class="key s2"></i>Upload</div><div class="value" id="wan-up">–</div></div>
         </div>
         <div class="chart" id="wan-chart" role="img" aria-label="WAN download and upload rate, last 30 seconds"></div>
-        <div class="facts">
+        <div class="facts" id="wan-totals" tabindex="0">
           <span><span class="muted">Received</span> <strong id="wan-rx">–</strong></span>
           <span><span class="muted">Sent</span> <strong id="wan-tx">–</strong></span>
           <span><span class="muted">WAN up</span> <strong id="wan-uptime">–</strong></span>
         </div>
+        <button type="button" class="note top-now" id="wan-top" hidden title="Open the device list"></button>
         <p class="note" id="wan-msg" role="status" hidden></p>
-        <p class="note" id="wan-note" hidden>Totals since the WAN link came up; HW NAT can under-count them.</p>
       </article>
 
       <article class="card">
@@ -391,7 +444,7 @@ details th { color: var(--muted); font-weight: 500; }
 
   <section aria-labelledby="services-title">
     <div class="section-head">
-      <h2 id="services-title">Services</h2>
+      <h2 id="services-title">Services <span class="svc-down" id="svc-down" hidden><i class="sdot critical"></i><span></span></span></h2>
       <label class="filter" for="filter">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
         <input id="filter" type="search" placeholder="Filter services" aria-label="Filter services by name, host or IP" autocomplete="off">
@@ -407,6 +460,83 @@ details th { color: var(--muted); font-weight: 500; }
 <div id="tip" role="tooltip" hidden></div>
 <!-- Bottom row: quote on the left, photo credit / wallpaper / theme on the right. It is part of the page flow:
      at the bottom of the window when the page is short, below the content when it scrolls -->
+<!-- History window: speed tests, traffic per day and WAN events kept by the collector (/api/history) -->
+<dialog id="history" aria-labelledby="history-title">
+  <div class="hist-head">
+    <h2 id="history-title">History</h2>
+    <button type="button" class="icon-btn" id="history-close" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="hist-body">
+    <section class="hist-block">
+      <div class="hist-title"><h3>Speed tests</h3>
+        <div class="legend"><span><i class="key s1"></i>Download</span><span><i class="key s2"></i>Upload</span></div>
+        <span class="muted" id="hist-speed-sum"></span></div>
+      <div class="chart" id="hist-speed" role="img" aria-label="Speed test results over time"></div>
+      <details><summary>Table</summary>
+        <table><thead><tr><th>Date</th><th>Download</th><th>Upload</th><th>Ping</th><th>Bufferbloat</th></tr></thead><tbody id="hist-speed-table"></tbody></table>
+      </details>
+    </section>
+    <section class="hist-block">
+      <div class="hist-title"><h3>Traffic per day</h3>
+        <div class="legend"><span><i class="key box s1"></i>Received</span><span><i class="key box s2"></i>Sent</span></div>
+        <span class="muted" id="hist-traffic-sum"></span></div>
+      <div class="chart" id="hist-traffic" role="img" aria-label="WAN traffic per day, last 30 days"></div>
+      <details><summary>Table</summary>
+        <table><thead><tr><th>Day</th><th>Received</th><th>Sent</th></tr></thead><tbody id="hist-traffic-table"></tbody></table>
+      </details>
+    </section>
+    <section class="hist-block">
+      <div class="hist-title"><h3>WAN events</h3><span class="muted">drops, reconnects and public IP changes</span></div>
+      <ol class="hist-events" id="hist-events"></ol>
+    </section>
+    <p class="note">Kept by the collector from the moment it runs. Traffic comes from the router's WAN counters, so with hardware NAT it can be under-counted.</p>
+  </div>
+</dialog>
+<!-- VPN window: the router's VPN client tunnels with an on/off switch each (vpn-client.set_tunnel) -->
+<dialog id="vpn" aria-labelledby="vpn-title">
+  <div class="hist-head">
+    <h2 id="vpn-title">VPN</h2>
+    <button type="button" class="icon-btn" id="vpn-close" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="hist-body">
+    <ul class="vpn-list" id="vpn-list"></ul>
+    <p class="wp-msg" id="vpn-msg" role="status" hidden></p>
+    <p class="note">The same switches as on the router's VPN Dashboard. Servers, routing and kill switch are set up there.</p>
+  </div>
+</dialog>
+<!-- Devices window: the router's client list with live speed per device (clients.get_list) -->
+<dialog id="devices" aria-labelledby="devices-title">
+  <div class="hist-head">
+    <h2 id="devices-title">Devices <span class="muted" id="devices-count"></span></h2>
+    <button type="button" class="icon-btn" id="devices-close" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="hist-body">
+    <table class="dev-table">
+      <thead><tr>
+        <th><button type="button" data-sort="name">Device</button></th>
+        <th>IP</th>
+        <th><button type="button" data-sort="iface">Connection</button></th>
+        <th class="num"><button type="button" data-sort="down">↓ now</button></th>
+        <th class="num"><button type="button" data-sort="up">↑ now</button></th>
+        <th class="num"><button type="button" data-sort="total_down" title="Traffic as counted by the router">Downloaded</button></th>
+        <th class="num"><button type="button" data-sort="total_up" title="Traffic as counted by the router">Uploaded</button></th>
+        <th class="num"><button type="button" data-sort="since">Connected</button></th>
+      </tr></thead>
+      <tbody id="devices-online"></tbody>
+    </table>
+    <details id="devices-offline-box">
+      <summary>Offline (<span id="devices-offline-count">0</span>)</summary>
+      <table class="dev-table"><tbody id="devices-offline"></tbody></table>
+    </details>
+    <p class="note">Speeds and traffic as the router counts them; with hardware NAT part of the traffic is not counted per device. <b>new</b>: first seen in the last 24 hours (also listed in History).</p>
+  </div>
+</dialog>
 <div class="bottom-bar">
   <footer id="footer" hidden><q id="quote-text"></q><span class="author" id="quote-author"></span><a class="source" id="quote-source" target="_blank" rel="noopener"></a></footer>
   <div class="corner-wrap">
@@ -450,14 +580,15 @@ function render(filter) {
     shown += items.length;
     if (!items.length) return "";
     return `<section class="group"><h3>${esc(g.name)}</h3>${items.map(i => `
-      <a class="tile" href="${esc(i.url)}" data-addr="${esc(i.addr)}">
-        <span class="mark${i.icon ? " has-icon" : ""}" aria-hidden="true">${markHtml(i)}</span>
+      <a class="tile" href="${esc(i.url)}" data-addr="${esc(i.addr)}" data-check="${esc(i.check || "")}">
+        <span class="mark${i.icon ? " has-icon" : ""}" aria-hidden="true">${markHtml(i)}</span>${i.check ? '<i class="health" aria-hidden="true"></i>' : ""}
         <span class="name">${esc(i.name)}</span>
-        <span class="sub">${esc(i.host)}</span>${i.addr ? `<span class="sr-only">, ${esc(i.addr)}</span>` : ""}
+        <span class="sub">${esc(i.host)}</span>${i.addr ? `<span class="sr-only">, ${esc(i.addr)}</span>` : ""}${i.check ? '<span class="sr-only health-text"></span>' : ""}
       </a>`).join("")}</section>`;
   }).join("");
   empty.hidden = shown > 0 || !GROUPS.length;
   if (tipOwner && tipOwner.classList.contains("tile")) hideTip();  // its tile was just replaced
+  if (typeof lastSnap !== "undefined" && lastSnap) renderHealth(lastSnap);
 }
 
 function markHtml(i) {
@@ -466,11 +597,28 @@ function markHtml(i) {
   return i.icon_dark ? light + `<img class="icon-dark" src="${esc(i.icon_dark)}" alt="" loading="lazy">` : light;
 }
 
+// Small hover/focus hints: any element with data-hint shows its text in the shared tooltip, just below it
+function hintTip(target) {
+  if (!target.dataset.hint) return;
+  const r = target.getBoundingClientRect(), pad = 14 * scale();
+  showTip(target, r.left - pad, r.bottom - pad + 4 * scale(), target.dataset.hint, []);
+}
+document.addEventListener("pointerover", e => { const t = e.target.closest("[data-hint]"); if (t && t !== tipOwner) hintTip(t); });
+document.addEventListener("pointerout", e => {
+  const t = e.target.closest("[data-hint]");
+  if (t && t === tipOwner && !t.contains(e.relatedTarget)) hideTip();
+});
+document.addEventListener("focusin", e => { const t = e.target.closest("[data-hint]"); if (t) hintTip(t); });
+document.addEventListener("focusout", e => { if (tipOwner && tipOwner.dataset && "hint" in tipOwner.dataset) hideTip(); });
+
 // Tile tooltip: only the LAN address (no tooltip without one), shown below the tile on hover or keyboard focus
 function tileTip(tile) {
-  if (!tile.dataset.addr) return hideTip();
+  const rows = [];
+  if (tile.dataset.addr) rows.push({ value: tile.dataset.addr, label: "" });
+  if (tile.dataset.down) rows.push({ value: tile.dataset.down, label: tile.dataset.reason || "" });
+  if (!rows.length) return hideTip();
   const r = tile.getBoundingClientRect(), pad = 14 * scale();
-  showTip(tile, r.left - pad, r.bottom - pad + 6 * scale(), "", [{ value: tile.dataset.addr, label: "" }]);
+  showTip(tile, r.left - pad, r.bottom - pad + 6 * scale(), "", rows);
 }
 root.addEventListener("pointerover", e => { const t = e.target.closest(".tile"); if (t && t !== tipOwner) tileTip(t); });
 root.addEventListener("pointerout", e => {
@@ -906,9 +1054,13 @@ function renderWan(snap) {
   setText("wan-tx", w.tx_bytes == null ? null : joinPair(byteSize(w.tx_bytes)));
   setText("wan-uptime", w.up === false ? "down" : duration(w.uptime));
   const l = link.data || {}, ip = l.ipv4 && l.ipv4.ip ? l.ipv4.ip.split("/")[0] : null;
-  setText("wan-link", [(l.protocol || w.proto || "").toUpperCase(), ip].filter(Boolean).join(" · "));
+  const proto = (l.protocol || w.proto || "").toUpperCase();
+  $("wan-link").replaceChildren(...(proto ? [proto] : []), ...(proto && ip ? [" · "] : []), ...(ip ? [ipLink(ip)] : []), ...(!proto && !ip ? ["–"] : []));
   renderReconnect(snap, w, ip);
-  $("wan-note").hidden = !(router.data && router.data.netnat_enabled);
+  // The HW NAT caveat lives in hover hints instead of a note in the card
+  const netnat = router.data && router.data.netnat_enabled;
+  $("wan-speeds").dataset.hint = netnat ? "Hardware NAT is on: offloaded traffic can be under-counted" : "";
+  $("wan-totals").dataset.hint = "Counted since the WAN link came up" + (netnat ? " · hardware NAT can under-count them" : "");
   if (rate && Array.isArray(rate.download_list)) {
     lineChart($("wan-chart"), [
       { key: "s1", label: "download", values: rate.download_list.map(v => v * 8) },
@@ -1048,6 +1200,25 @@ $("dns-pause").addEventListener("click", async () => {
   }
 });
 
+// Service status dots: results of the collector's TCP checks, keyed by the tile's check target
+function renderHealth(snap) {
+  const results = ((snap.sources.health || {}).data) || {};
+  let down = 0;
+  for (const tile of root.querySelectorAll(".tile[data-check]:not([data-check=''])")) {
+    const r = results[tile.dataset.check], dot = tile.querySelector(".health"), text = tile.querySelector(".health-text");
+    const state = !r ? "" : r.up ? "up" : "down";
+    dot.className = `health ${state}`;
+    if (state === "down") down++;
+    const secs = state === "down" ? snap.now - r.since : 0;
+    tile.dataset.down = state !== "down" ? "" : secs < 60 ? "down just now" : `down for ${ago(secs).replace(" ago", "")}`;
+    tile.dataset.reason = state === "down" ? (r.error || "") : "";
+    text.textContent = state === "down" ? `, down: ${r.error || "not reachable"}` : state === "up" ? ", up" : "";
+  }
+  const summary = $("svc-down");
+  summary.hidden = !down;
+  summary.lastChild.textContent = `${down} down`;
+}
+
 function dnsUpstreams(snap) {
   const ups = ((snap.sources.dns || {}).data || {}).upstreams || [];
   return ups.length ? "DNS upstreams " + ups.map(u => `${u.name.replace(/:53$/, "")} ${u.avg_ms} ms`).join(", ") : null;
@@ -1064,7 +1235,12 @@ function renderRouter(snap) {
     r.clients != null && `${r.clients} clients`,
     r.uptime != null && `up ${duration(r.uptime)}`,
   ];
-  $("rl-router").textContent = router.filter(Boolean).join(" · ");
+  // "N clients" is a link to the device list
+  const parts = router.filter(Boolean), clientsText = r.clients != null ? `${r.clients} clients` : null;
+  $("rl-router").replaceChildren(...parts.flatMap((part, i) => {
+    const node = part === clientsText ? Object.assign(el("button", "link-btn", part), { type: "button", onclick: openDevices }) : part;
+    return i ? [" · ", node] : [node];
+  }));
   $("rl-dns").textContent = dnsUpstreams(snap) || "";
   $("rl-updated").textContent = `updated ${new Date(snap.now * 1000).toLocaleTimeString("en-GB")}`;
 }
@@ -1077,7 +1253,7 @@ function setLiveState(status, text) {
 let lastSnap = null;
 function renderLive(snap) {
   $("live").hidden = false;
-  for (const fn of [renderWan, renderQuality, renderSpeedtest, renderDns, renderRouter]) {
+  for (const fn of [renderWan, renderQuality, renderSpeedtest, renderDns, renderRouter, renderHealth, renderTopDevices, renderDevices, renderVpn]) {
     try { fn(snap); } catch (e) { console.error(fn.name, e); }
   }
   const stale = [...document.querySelectorAll("[data-stale]")].some(e => !e.hidden);
@@ -1179,9 +1355,309 @@ async function refresh() {
     refreshTimer = setTimeout(refresh, busy ? (speedtestState(lastSnap) === "running" ? 500 : 1000) : REFRESH_MS);
   }
 }
+// --- VPN ---------------------------------------------------------------------
+// vpnclient.status codes, as in the GL UI: 0 disconnected, 1 connected, 2 connecting
+const VPN_STATE = { 0: ["off", ""], 1: ["connected", "good"], 2: ["connecting…", "warning"] };
+let vpnBusy = null;
+function vpnTunnels(snap) { return ((((snap && snap.sources.vpn) || {}).data) || {}).status_list || []; }
+function vpnState(t) {
+  if (!t.enabled) return ["off", ""];
+  return VPN_STATE[t.status] || ["connecting…", "warning"];
+}
+
+// An IP address as a link to its details on ipinfo.io (country, city, provider), in a new tab
+function ipLink(ip) {
+  const a = el("a", "ip-link", ip);
+  a.href = `https://ipinfo.io/${encodeURIComponent(ip)}`;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.title = "";
+  a.dataset.hint = "Show details on ipinfo.io";
+  return a;
+}
+
+// External IP seen through a connected tunnel (looked up by the collector, see VpnExit)
+function exitParts(snap, t) {
+  const src = (snap.sources.vpn_exit || {}), exit = src.data;
+  if (!exit || !(exit.tunnels || []).includes(t.tunnel_id)) return [src.error ? " · IP lookup failed" : " · checking IP…"];
+  if (!exit.routed) return [" · IP not visible here: the dashboard's own traffic does not use this tunnel"];
+  const place = [exit.city, exit.country].filter(Boolean).join(", ");
+  return [" · ", ipLink(exit.ip), ...(place ? [` · ${place}`] : [])];
+}
+
+function renderVpn(snap) {
+  const tunnels = vpnTunnels(snap), btn = $("vpn-open");
+  btn.hidden = !tunnels.length;
+  const on = tunnels.filter(t => t.enabled);
+  const connected = on.find(t => t.status === 1);
+  $("vpn-dot").className = `sdot ${connected ? "good" : on.length ? "warning" : ""}`;
+  $("vpn-dot").hidden = !on.length;
+  $("vpn-label").textContent = on.length ? `VPN · ${(connected || on[0]).name}` : "VPN off";
+  const exit = (snap.sources.vpn_exit || {}).data;
+  btn.dataset.hint = connected && exit && exit.routed ? `External IP ${exit.ip}${exit.country ? " · " + [exit.city, exit.country].filter(Boolean).join(", ") : ""}` : "";
+  if (!$("vpn").open) return;
+  $("vpn-list").replaceChildren(...tunnels.map(t => {
+    const [text, cls] = vpnState(t), li = el("li");
+    const state = el("span", "vpn-state");
+    if (cls) state.append(el("i", `sdot ${cls}`));
+    state.append(`${t.type === "wireguard" ? "WireGuard" : t.type === "openvpn" ? "OpenVPN" : t.type || "VPN"} · ${text}`,
+                 ...(t.enabled && t.status === 1 ? exitParts(snap, t) : []));
+    const toggle = el("button", "btn", vpnBusy === t.tunnel_id ? "…" : t.enabled ? "Turn off" : "Turn on");
+    toggle.type = "button";
+    toggle.disabled = vpnBusy !== null;
+    toggle.addEventListener("click", () => switchVpn(t));
+    li.append(el("span", "vpn-name", t.name), toggle, state);
+    return li;
+  }));
+}
+
+async function switchVpn(t) {
+  const enable = !t.enabled;
+  if (enable && !confirm(`Turn on VPN "${t.name}"?\n\nInternet traffic of the devices routed through this tunnel goes through the VPN. If kill switch is on and the VPN drops, their internet stops until it reconnects.`)) return;
+  vpnBusy = t.tunnel_id;
+  const msg = $("vpn-msg");
+  msg.hidden = true;
+  if (lastSnap) renderVpn(lastSnap);
+  try {
+    const resp = await fetch("api/vpn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tunnel_id: t.tunnel_id, enabled: enable }) });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+  } catch (err) {
+    msg.hidden = false; msg.classList.add("error"); msg.textContent = err.message;
+  } finally {
+    vpnBusy = null;
+    refresh();
+  }
+}
+$("vpn-open").addEventListener("click", () => { $("vpn").showModal(); $("vpn-msg").hidden = true; if (lastSnap) renderVpn(lastSnap); });
+$("vpn-close").addEventListener("click", () => $("vpn").close());
+$("vpn").addEventListener("click", e => { if (e.target === $("vpn")) $("vpn").close(); });
+
+// --- Devices ----------------------------------------------------------------
+let devSort = { key: "down", dir: -1 };
+// Connection sorts from the fastest link to the slowest: cable, 5G, 2.4G, anything else
+const IFACE_RANK = { cable: 0, "5G": 1, "2.4G": 2 };
+const devValue = (d, key) => key === "name" ? d.name.toLowerCase()
+  : key === "iface" ? IFACE_RANK[d.iface || "cable"] ?? 3
+  : key === "since" ? -(d.since || 0) : d[key] || 0;
+
+// Internet card: the three devices downloading the most right now
+function renderTopDevices(snap) {
+  const list = (((snap.sources.clients || {}).data) || {}).devices || [];
+  const top = list.filter(d => d.online && d.down >= 1000).sort((a, b) => b.down - a.down).slice(0, 3);
+  const line = $("wan-top");
+  line.hidden = !top.length;
+  line.replaceChildren("Now: ", ...top.flatMap((d, i) => [...(i ? [" · "] : []), el("b", null, d.name), ` ↓ ${joinPair(bitRate(d.down))}`]));
+}
+
+function renderDevices(snap) {
+  if (!$("devices").open) return;
+  const list = (((snap.sources.clients || {}).data) || {}).devices || [];
+  const online = list.filter(d => d.online), offline = list.filter(d => !d.online);
+  // dir 1 = ascending, -1 = descending ("Connected" sorts by -since: longest connected first when descending)
+  online.sort((a, b) => {
+    const x = devValue(a, devSort.key), y = devValue(b, devSort.key);
+    // ties (e.g. same connection type) keep a stable order by name
+    return (x < y ? -1 : x > y ? 1 : 0) * devSort.dir || a.name.localeCompare(b.name);
+  });
+  $("devices-count").textContent = `· ${online.length} online`;
+  const row = (d, live) => {
+    const tr = el("tr");
+    tr.title = `${d.mac}${d.class ? " · " + d.class : ""}`;
+    const name = el("td", "name", d.name);
+    if (d.new) name.append(el("span", "dev-new", "new"));
+    tr.append(name, el("td", null, d.ip || "–"), el("td", null, d.iface || "wired"),
+      el("td", "num" + (live && d.down < 1000 ? " quiet" : ""), live ? joinPair(bitRate(d.down)) : "–"),
+      el("td", "num" + (live && d.up < 1000 ? " quiet" : ""), live ? joinPair(bitRate(d.up)) : "–"),
+      el("td", "num", joinPair(byteSize(d.total_down))), el("td", "num", joinPair(byteSize(d.total_up))),
+      el("td", "num", live && d.since ? duration(snap.now - d.since) : "–"));
+    return tr;
+  };
+  $("devices-online").replaceChildren(...online.map(d => row(d, true)));
+  $("devices-offline").replaceChildren(...offline.map(d => row(d, false)));
+  $("devices-offline-count").textContent = offline.length;
+  $("devices-offline-box").hidden = !offline.length;
+  for (const b of document.querySelectorAll("#devices th button")) {
+    if (b.dataset.sort === devSort.key) b.setAttribute("aria-sort", devSort.dir < 0 ? "descending" : "ascending");
+    else b.removeAttribute("aria-sort");
+  }
+}
+
+function openDevices() {
+  $("devices").showModal();
+  if (lastSnap) renderDevices(lastSnap);
+}
+for (const b of document.querySelectorAll("#devices th button")) {
+  b.addEventListener("click", () => {
+    const key = b.dataset.sort;
+    devSort = devSort.key === key ? { key, dir: -devSort.dir } : { key, dir: key === "name" || key === "iface" ? 1 : -1 };
+    if (lastSnap) renderDevices(lastSnap);
+  });
+}
+$("devices-open").addEventListener("click", openDevices);
+$("wan-top").addEventListener("click", openDevices);
+$("devices-close").addEventListener("click", () => $("devices").close());
+$("devices").addEventListener("click", e => { if (e.target === $("devices")) $("devices").close(); });
+
+// --- History window --------------------------------------------------------
+let historyData = null;
+const when = t => new Date(t * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const dayLabel = d => new Date(`${d}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+// Speed tests over time: two 2px lines with markers, nearest-point tooltip
+function speedHistoryChart(host, tests) {
+  if (!tests.length) {
+    host.replaceChildren(el("p", "hist-empty", "No speed tests recorded yet: the nightly test or the Speed test button adds the first one."));
+    host._chart = null;
+    return;
+  }
+  const k = scale(), w = Math.max(240, host.clientWidth), h = 170 * k, top = 14 * k, bottom = 16 * k, pad = 8 * k;
+  const t0 = tests[0].t, span = Math.max(1, tests[tests.length - 1].t - t0);
+  const xOf = i => tests.length === 1 ? w / 2 : pad + (w - 2 * pad) * (tests[i].t - t0) / span;
+  const max = niceMax(Math.max(1, ...tests.flatMap(t => [t.down, t.up])));
+  const yOf = v => top + (h - top - bottom) * (1 - v / max);
+  const base = Math.round(yOf(0)) + 0.5, cap = Math.round(yOf(max)) + 0.5;
+  let svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">`
+    + `<line class="grid-line" x1="0" x2="${w}" y1="${cap}" y2="${cap}"/><line class="grid-line" x1="0" x2="${w}" y1="${base}" y2="${base}"/>`
+    + `<text class="axis" x="0" y="${cap - 4 * k}">${max} Mbps</text>`
+    + `<text class="axis" x="0" y="${h - 3 * k}">${dayLabel(new Date(t0 * 1000).toISOString().slice(0, 10))}</text>`
+    + (tests.length > 1 ? `<text class="axis" x="${w}" y="${h - 3 * k}" text-anchor="end">${dayLabel(new Date(tests[tests.length - 1].t * 1000).toISOString().slice(0, 10))}</text>` : "")
+    + `<line class="cross" x1="0" x2="0" y1="${top - 4 * k}" y2="${base}" visibility="hidden"/>`;
+  for (const [key, field] of [["s1", "down"], ["s2", "up"]]) {
+    if (tests.length > 1) svg += `<path class="ln ${key}" d="${tests.map((t, i) => `${i ? "L" : "M"}${xOf(i).toFixed(1)},${yOf(t[field]).toFixed(1)}`).join("")}"/>`;
+    svg += tests.map((t, i) => `<circle class="end ${key}" r="${4 * k}" cx="${xOf(i).toFixed(1)}" cy="${yOf(t[field]).toFixed(1)}"/>`).join("");
+  }
+  host.innerHTML = svg + "</svg>";
+  const cross = host.querySelector(".cross");
+  mount(host, {
+    n: tests.length,
+    indexAt: x => tests.reduce((best, _, i) => Math.abs(xOf(i) - x) < Math.abs(xOf(best) - x) ? i : best, 0),
+    xOf,
+    title: i => when(tests[i].t),
+    rows: i => [
+      { key: "s1", value: `${Math.round(tests[i].down)} Mbps`, label: "download" },
+      { key: "s2", value: `${Math.round(tests[i].up)} Mbps`, label: "upload" },
+      ...(tests[i].ping != null ? [{ value: `${Math.round(tests[i].ping)} ms`, label: "ping" }] : []),
+      ...(tests[i].bufferbloat ? [{ value: tests[i].bufferbloat, label: "bufferbloat" }] : []),
+    ],
+    highlight: i => {
+      cross.setAttribute("visibility", i == null ? "hidden" : "visible");
+      if (i != null) { const x = Math.round(xOf(i)) + 0.5; cross.setAttribute("x1", x); cross.setAttribute("x2", x); }
+    },
+  });
+}
+
+// Traffic per day: stacked columns (received bottom, sent top), 2px surface gap, last 30 days
+function trafficHistoryChart(host, days) {
+  const k = scale(), w = Math.max(240, host.clientWidth), h = 170 * k, top = 14 * k, bottom = 16 * k;
+  const n = days.length, band = w / n, bw = Math.min(24 * k, Math.max(3, band - 4 * k));
+  const max = Math.max(1, ...days.map(d => d.rx + d.tx)), cap = niceMaxBytes(max);
+  const plot = h - top - bottom, base = top + plot;
+  const roundTop = (x, y, bw, bh) => {
+    const r = Math.min(4 * k, bh, bw / 2);
+    return `M${x},${y + bh}V${y + r}A${r},${r} 0 0 1 ${x + r},${y}H${x + bw - r}A${r},${r} 0 0 1 ${x + bw},${y + r}V${y + bh}Z`;
+  };
+  let svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">`
+    + `<line class="grid-line" x1="0" x2="${w}" y1="${top + 0.5}" y2="${top + 0.5}"/>`
+    + `<text class="axis" x="0" y="${top - 4 * k}">${joinPair(byteSize(cap))} / day</text>`;
+  days.forEach((d, i) => {
+    const x = +(i * band + (band - bw) / 2).toFixed(1), ha = d.rx / cap * plot, hb = d.tx / cap * plot, gap = ha > 0 && hb > 0 ? 2 * k : 0;
+    let g = "";
+    if (ha > 0) g += hb > 0 ? `<rect class="seg s1" x="${x}" y="${(base - ha).toFixed(1)}" width="${bw.toFixed(1)}" height="${ha.toFixed(1)}"/>` : `<path class="seg s1" d="${roundTop(x, base - ha, bw, ha)}"/>`;
+    if (hb > 0) g += `<path class="seg s2" d="${roundTop(x, base - ha - gap - hb, bw, hb)}"/>`;
+    svg += `<g class="col">${g}</g>`;
+    if ((n - 1 - i) % 7 === 0) svg += `<text class="axis" x="${(i * band + band / 2).toFixed(1)}" y="${h - 3 * k}" text-anchor="middle">${dayLabel(d.day)}</text>`;
+  });
+  svg += `<line class="grid-line" x1="0" x2="${w}" y1="${base + 0.5}" y2="${base + 0.5}"/>`;
+  host.innerHTML = svg + "</svg>";
+  const cols = host.querySelectorAll(".col");
+  mount(host, {
+    n,
+    indexAt: x => Math.floor(x / band),
+    xOf: i => i * band + band / 2,
+    title: i => days[i].day === historyData.today ? `${dayLabel(days[i].day)} (today so far)` : dayLabel(days[i].day),
+    rows: i => [
+      { key: "box s1", value: joinPair(byteSize(days[i].rx)), label: "received" },
+      { key: "box s2", value: joinPair(byteSize(days[i].tx)), label: "sent" },
+    ],
+    highlight: i => { host.classList.toggle("has-hot", i != null); cols.forEach((c, j) => c.classList.toggle("hot", j === i)); },
+  });
+}
+
+// A "nice" axis maximum in bytes (1, 2, 2.5, 5 x 10^n of the display unit)
+function niceMaxBytes(v) {
+  let unit = 1;
+  while (v / unit >= 1000 && unit < 1e12) unit *= 1000;
+  return niceMax(v / unit) * unit;
+}
+
+function renderHistory() {
+  const data = historyData;
+  if (!data) return;
+  // Speed tests
+  const tests = data.speedtests || [];
+  speedHistoryChart($("hist-speed"), tests);
+  if (tests.length) {
+    const avg = f => Math.round(tests.reduce((a, t) => a + t[f], 0) / tests.length);
+    $("hist-speed-sum").textContent = `${tests.length} test${tests.length === 1 ? "" : "s"} · average ↓ ${avg("down")} · ↑ ${avg("up")} Mbps`;
+  } else $("hist-speed-sum").textContent = "";
+  $("hist-speed-table").replaceChildren(...tests.slice().reverse().map(t => {
+    const tr = el("tr");
+    tr.append(el("td", null, when(t.t)), el("td", null, `${Math.round(t.down)} Mbps`), el("td", null, `${Math.round(t.up)} Mbps`),
+              el("td", null, t.ping != null ? `${Math.round(t.ping)} ms` : "–"), el("td", null, t.bufferbloat || "–"));
+    return tr;
+  }));
+  // Traffic: the last 30 router-local days, missing days as 0
+  const known = Object.fromEntries((data.traffic || []).map(([day, rx, tx]) => [day, { rx, tx }]));
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(`${data.today}T12:00:00`); d.setDate(d.getDate() - i);
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    days.push({ day, rx: (known[day] || {}).rx || 0, tx: (known[day] || {}).tx || 0 });
+  }
+  trafficHistoryChart($("hist-traffic"), days);
+  const sum = list => list.reduce((a, d) => a + d.rx + d.tx, 0);
+  const month = days.filter(d => d.day.slice(0, 7) === data.today.slice(0, 7));
+  $("hist-traffic-sum").textContent = `today ${joinPair(byteSize(sum(days.slice(-1))))} · 7 days ${joinPair(byteSize(sum(days.slice(-7))))} · this month ${joinPair(byteSize(sum(month)))}`;
+  $("hist-traffic-table").replaceChildren(...days.slice().reverse().filter(d => d.rx || d.tx).map(d => {
+    const tr = el("tr");
+    tr.append(el("td", null, dayLabel(d.day)), el("td", null, joinPair(byteSize(d.rx))), el("td", null, joinPair(byteSize(d.tx))));
+    return tr;
+  }));
+  // Events, newest first
+  const events = data.events || [];
+  $("hist-events").replaceChildren(...(events.length ? events.map(e => {
+    const li = el("li");
+    const t = el("time", null, when(e.t)); t.dateTime = new Date(e.t * 1000).toISOString();
+    li.append(t, el("span", null, e.text));
+    return li;
+  }) : [el("li", "hist-empty", "No WAN events recorded yet.")]));
+}
+
+async function openHistory() {
+  const dialog = $("history");
+  dialog.showModal();
+  dialog.append(tip);  // the modal dialog sits in the top layer: keep the tooltip above it
+  try {
+    const resp = await fetch("api/history", { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    historyData = await resp.json();
+    renderHistory();
+  } catch (e) {
+    $("hist-events").replaceChildren(el("li", "hist-empty", `Could not load the history (${e.message}).`));
+  }
+}
+$("history-open").addEventListener("click", openHistory);
+$("history-close").addEventListener("click", () => $("history").close());
+$("history").addEventListener("close", () => { hideTip(); document.body.append(tip); });
+$("history").addEventListener("click", e => { if (e.target === $("history")) $("history").close(); });  // click on the backdrop
+
 // Re-lay out charts on resize using the cached snapshot
 let resizeTimer;
-addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => lastSnap && renderLive(lastSnap), 150); });
+addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (lastSnap) renderLive(lastSnap); if ($("history").open) renderHistory(); }, 150);
+});
 refresh();
 </script>
 </html>

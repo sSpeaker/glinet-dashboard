@@ -56,7 +56,9 @@ speedtest:
 #   icon_dark (opt.)  variant used with the dark theme, e.g. a white logo instead of a black one
 #   mark  (optional)  2-3 letters shown when there is no icon; default: initials of the name
 #   host  (optional)  second line on the tile, usually the public hostname
-#   addr  (optional)  LAN backend ip:port, shown in the tooltip on hover
+#   addr  (optional)  LAN backend ip:port, shown in the tooltip on hover; when it is host:port the
+#                     tile gets a status dot (TCP check every minute)
+#   check (optional)  false = no status dot, url = check the host of url, or another host:port to check
 # The filter box searches name, host and addr. Groups without services are hidden.
 groups:
   - name: Network

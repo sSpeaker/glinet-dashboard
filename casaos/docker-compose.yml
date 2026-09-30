@@ -24,6 +24,7 @@ services:
       ADGUARD_PORT: "3000"
       WAN_INTERFACE: wan
       POLL_SECONDS: "5"
+      HEALTH_SECONDS: "60"
       TOP_N: "10"
       PORT: "3100"
     volumes:
@@ -59,6 +60,9 @@ services:
         - container: POLL_SECONDS
           description:
             en_US: Poll interval in seconds (5-60)
+        - container: HEALTH_SECONDS
+          description:
+            en_US: Service status check interval in seconds (15-600)
       ports:
         - container: "3100"
           description:
