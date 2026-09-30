@@ -166,6 +166,8 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn:disabled { opacity: 0.55; cursor: default; }
+.chip-status { display: inline-flex; align-items: center; gap: 0.3125rem; color: var(--fg); }
+.chip-status .sdot { width: 0.4375rem; height: 0.4375rem; }
 .icon-btn { display: grid; place-items: center; width: 1.375rem; height: 1.375rem; padding: 0; border: 0; border-radius: 0.375rem; background: none; color: var(--muted); cursor: pointer; opacity: 0.7; }
 .icon-btn svg { width: 0.875rem; height: 0.875rem; }
 .icon-btn:hover:not(:disabled) { opacity: 1; color: var(--accent); background: var(--chip); }
@@ -361,6 +363,7 @@ details th { color: var(--muted); font-weight: 500; }
           <h3>DNS · AdGuard Home</h3>
           <span class="stale" data-stale="dns" hidden>stale</span>
           <span class="chip" id="dns-protection">–</span>
+          <button type="button" class="btn" id="dns-pause" hidden>⏸ Pause 30 min</button>
         </div>
         <div class="dns-body">
           <div class="dns-main">
@@ -997,7 +1000,7 @@ function renderDns(snap) {
   markStale("dns", dns.stale);
   const d = dns.data;
   if (!d) return;
-  setText("dns-protection", !d.running ? "not running" : d.protection_enabled ? "protection on" : "protection off");
+  renderProtection(snap, dns, d);
   setText("dns-queries", d.queries == null ? null : cf.format(d.queries));
   $("dns-queries").title = d.queries == null ? "" : nf.format(d.queries);
   const pct = d.queries ? (100 * d.blocked / d.queries).toFixed(1) : null;
@@ -1008,6 +1011,42 @@ function renderDns(snap) {
   rankList($("dns-top-queried"), d.top_queried || [], "s1");
   rankList($("dns-top-blocked"), d.top_blocked || [], "s2");
 }
+
+// AdGuard protection chip + pause/resume button (30 min, like AdGuard's own menu)
+let protectionBusy = false;
+function renderProtection(snap, dns, d) {
+  const chip = $("dns-protection"), btn = $("dns-pause");
+  const updated = (snap.sources.dns || {}).updated || snap.now;
+  const leftMs = (d.protection_paused_ms || 0) - (snap.now - updated) * 1000;
+  let text = "protection on", paused = false;
+  if (!d.running) text = "not running";
+  else if (!d.protection_enabled) {
+    paused = true;
+    text = leftMs > 0 ? `protection paused · ${Math.max(1, Math.ceil(leftMs / 60000))} min left` : "protection off";
+  }
+  chip.replaceChildren(...(paused ? [el("i", "sdot warning")] : []), text);
+  chip.classList.toggle("chip-status", paused);
+  btn.hidden = !d.running;
+  btn.disabled = protectionBusy || Boolean(dns.stale);
+  btn.textContent = protectionBusy ? "…" : paused ? "▶ Resume" : "⏸ Pause 30 min";
+  btn.title = paused ? "Turn AdGuard protection back on now" : "Pause AdGuard filtering for 30 minutes; it resumes by itself";
+  btn.dataset.paused = paused ? "1" : "";
+}
+$("dns-pause").addEventListener("click", async () => {
+  const btn = $("dns-pause"), resume = btn.dataset.paused === "1";
+  protectionBusy = true; btn.disabled = true; btn.textContent = "…";
+  try {
+    const resp = await fetch("api/dns/protection", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                     body: JSON.stringify(resume ? { enabled: true } : { enabled: false, minutes: 30 }) });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+  } catch (err) {
+    btn.title = `Failed: ${err.message}`;
+  } finally {
+    protectionBusy = false;
+    refresh();
+  }
+});
 
 function dnsUpstreams(snap) {
   const ups = ((snap.sources.dns || {}).data || {}).upstreams || [];

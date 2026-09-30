@@ -12,6 +12,7 @@ and serves them next to the start page:
   POST /api/speedtest {"enable": true|false} -> start/stop the router speed test (network-quality.set_speedtest)
   POST /api/background {"url": "https://unsplash.com/photos/..."} | {"reset": true} -> wallpaper set from the page
   POST /api/wan/reconnect {} -> re-dial the WAN (LuCI interface "Restart": /sbin/ifup <wan>)
+  POST /api/dns/protection {"enabled": false, "minutes": 30} | {"enabled": true} -> pause/resume AdGuard protection
   GET /media/...   -> the downloaded wallpaper
 
 Sources (all read-only):
@@ -338,13 +339,20 @@ class GLSession(Session):
     def call(self, module, method, params=None, timeout=8):
         return self.run(lambda sid: self._rpc("call", [sid, module, method, params or {}], timeout))
 
-    def adguard(self, path):
-        """AdGuard Home runs with --glinet: it accepts the GL session as the Admin-Token cookie."""
+    def adguard(self, path, body=None):
+        """AdGuard Home runs with --glinet: it accepts the GL session as the Admin-Token cookie.
+        With a body the request is a JSON POST (AdGuard answers those with an empty body)."""
         def fetch(sid):
-            req = Request(f"http://{GL_HOST}:{ADGUARD_PORT}{path}", headers={"Cookie": "Admin-Token=" + sid})
+            headers = {"Cookie": "Admin-Token=" + sid}
+            data = None
+            if body is not None:
+                data = json.dumps(body).encode()
+                headers["Content-Type"] = "application/json"
+            req = Request(f"http://{GL_HOST}:{ADGUARD_PORT}{path}", data=data, headers=headers)
             try:
                 with urlopen(req, timeout=8) as resp:
-                    return json.load(resp)
+                    raw = resp.read()
+                    return json.loads(raw) if raw.strip().startswith((b"{", b"[")) else None
             except HTTPError as exc:
                 if exc.code in (401, 403):
                     raise AuthError(f"AdGuard {path}: HTTP {exc.code}") from None
@@ -478,6 +486,8 @@ def poll_dns(gl):
     return {
         "running": status.get("running"),
         "protection_enabled": status.get("protection_enabled"),
+        # Remaining pause in ms when protection was paused for a while (0 = off until turned on again)
+        "protection_paused_ms": status.get("protection_disabled_duration") or 0,
         "version": status.get("version"),
         "time_units": stats.get("time_units"),
         "queries": stats.get("num_dns_queries"),
@@ -1137,7 +1147,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if path not in ("/api/speedtest", "/api/background", "/api/wan/reconnect"):
+        if path not in ("/api/speedtest", "/api/background", "/api/wan/reconnect", "/api/dns/protection"):
             self.send_error(404)
             return
         body = self._read_json()
@@ -1145,6 +1155,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/background":
             self._background(body)
+            return
+        if path == "/api/dns/protection":
+            self._protection(body)
             return
         if path == "/api/wan/reconnect":
             try:
@@ -1166,6 +1179,21 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # router unreachable or rejected the call
             LOG.warning("speed test: %s", exc)
             self._json(502, {"error": f"router: {exc}"})
+
+    def _protection(self, body):
+        """Pause AdGuard protection for N minutes (default 30, like AdGuard's own menu) or resume it."""
+        enabled, minutes = body.get("enabled"), body.get("minutes", 30)
+        if not isinstance(enabled, bool) or not isinstance(minutes, int) or not 1 <= minutes <= 1440:
+            self._json(400, {"error": "body must be {\"enabled\": false, \"minutes\": 1-1440} or {\"enabled\": true}"})
+            return
+        try:
+            GL.adguard("/control/protection", {"enabled": True} if enabled else {"enabled": False, "duration": minutes * 60_000})
+            LOG.info("AdGuard protection %s", "resumed" if enabled else f"paused for {minutes} min")
+            STATE.ok("dns", poll_dns(GL))  # show the new state right away
+            self._json(200, {"ok": True})
+        except Exception as exc:  # AdGuard unreachable or refused
+            LOG.warning("AdGuard protection: %s", exc)
+            self._json(502, {"error": f"AdGuard: {exc}"})
 
     def _background(self, body):
         if body.get("reset") is True:

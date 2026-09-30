@@ -29,7 +29,8 @@ to tiles for your homelab services. One small container, one port, configured wi
 - **DNS (AdGuard Home on the router):**
   - queries, blocked share and average processing time;
   - allowed/blocked per hour for the last 24 h;
-  - top queried and top blocked domains.
+  - top queried and top blocked domains;
+  - a *Pause 30 min* button next to the protection status pauses AdGuard filtering like AdGuard's own menu (it resumes by itself; *Resume* turns it back on early).
 - **Services:**
   - grouped tiles with icons that open in the same tab, like a browser start page;
   - instant filter: `/` to focus, Enter opens the first match, Cmd/Ctrl+Enter opens it in a new tab;
@@ -206,6 +207,7 @@ The page is a single static HTML file served by the same process.
 
 Endpoints: `GET /api/status`, `GET /api/config`, `GET /api/quote`, `GET /assets/…` (images from the config folder),
 `POST /api/speedtest` with `{"enable": true|false}`, `POST /api/wan/reconnect` with `{}`,
+`POST /api/dns/protection` with `{"enabled": false, "minutes": 30}` or `{"enabled": true}`,
 `POST /api/background` with `{"url": "https://unsplash.com/photos/...", "location": "..."}`, `{"location": "..."}` or `{"reset": true}`,
 `GET /media/…` (the wallpaper set from the page).
 
@@ -217,9 +219,10 @@ Notes:
 
 ## Security
 
-- **Router access:** all calls are read-only, with two exceptions, and neither changes any setting:
+- **Router access:** all calls are read-only, with three exceptions, and none of them changes a saved setting:
   - starting/stopping the speed test uses the same call as the GL UI button;
-  - the WAN reconnect runs `ifup` like LuCI's interface *Restart*.
+  - the WAN reconnect runs `ifup` like LuCI's interface *Restart*;
+  - pausing/resuming AdGuard protection uses AdGuard's own `/control/protection` call; a pause ends by itself.
 - **Safe to leave running:** failed logins back off exponentially (15 s up to 10 min), so a wrong password cannot trigger the router's brute-force lockout.
 - **No authentication on the dashboard itself.** Keep it on your LAN or VPN, for example behind a reverse proxy with an internal-only DNS name, and do not expose it to the internet.
 - **Action endpoints:** all `POST` endpoints only accept `Content-Type: application/json`, which blocks cross-site form posts. Speed test starts and WAN reconnects are limited to one per minute, and the page asks before reconnecting.
