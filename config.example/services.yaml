@@ -11,6 +11,10 @@ page:
   tab_title: Home Lab           # browser tab title
   theme: auto                   # default theme: auto (follows the system), light or dark;
                                 # the switch in the bottom-right corner overrides it per browser
+  hint_delay: 600               # ms the mouse must rest on an element before its hint appears; 0 = at once
+  # world_clock:                # hover the clock: time and date in other cities (up to 6); off = no hint
+  #   - name: Kyiv
+  #     timezone: Europe/Kyiv     # IANA time zone: Europe/London, America/New_York, Asia/Tokyo, ...
   # favicon: favicon.png         # tab icon: file in this config folder or an https:// URL (default: built-in pulse icon)
   # Header title: plain text (title: My Home) or a list of parts, each with an optional colour.
   # color: accent (theme colour, adapts to dark mode) or any CSS colour: "#e5534b", tomato, ...
@@ -47,6 +51,24 @@ network:
 
 speedtest:
   schedule: "03:00"             # automatic daily speed test, router local time; "" turns it off
+
+# Warnings (orange) and critical alerts (red) shown next to "Live". A level set to off is not checked;
+# leave the whole section out to keep these defaults.
+alerts:
+  cpu_temp: {warning: 80, critical: 90}        # router CPU temperature, °C
+  memory: {warning: 85, critical: 95}          # router memory used, %
+  load: {warning: 3.0, critical: 4.0}          # router 5-minute load average (Flint 2 has 4 cores)
+  dns_avg_ms: {warning: 100, critical: off}    # AdGuard average processing time, ms (averaged over its stats period)
+  dns_upstream_ms: {warning: 150, critical: off}  # average answer time of any DNS upstream, ms
+  router_unreachable: true                     # critical while the dashboard gets no data from the router
+  wan_down: true                               # critical while the WAN is offline
+  router_restart_minutes: 15                   # "Router restarted ..." for this long after a reboot; 0 = off
+  wan_event_minutes: 15                        # WAN reconnect / public IP change shown this long; 0 = off
+  speedtest:                                   # last speed test compared with your internet plan
+    download: off                              # Mbps of the plan; off = not checked
+    upload: off
+    warning: 50                                # % of the plan
+    critical: 25
 
 # Each service:
 #   name  (required)  tile title

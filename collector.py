@@ -15,7 +15,9 @@ and serves them next to the start page:
   POST /api/wan/reconnect {} -> re-dial the WAN (LuCI interface "Restart": /sbin/ifup <wan>)
   POST /api/dns/protection {"enabled": false, "minutes": 30} | {"enabled": true} -> pause/resume AdGuard protection
   POST /api/vpn {"tunnel_id": 1234, "enabled": true|false} -> VPN client tunnel on/off (vpn-client.set_tunnel)
-  GET /media/...   -> the downloaded wallpaper
+  GET /api/bookmarks -> quick links under the search box {"links": [{id, url, name, title, icon, state}]}
+  POST /api/bookmarks {"links": [{"id"?, "url", "name", "refresh"?}]} -> save the list edited on the page
+  GET /media/...   -> the downloaded wallpaper; /media/favicons/... the cached quick link icons
 
 Sources (all read-only):
   router   GL RPC   /rpc  system.get_status             CPU, memory, load, uptime, WAN online
@@ -28,23 +30,27 @@ Sources (all read-only):
                                luci-rpc getNetworkDevices  WAN byte counters
   dns      AdGuard  :3000/control/stats, /control/status  (GL sid sent as the Admin-Token cookie)
 """
+import base64
 import copy
 import hashlib
 import json
 import logging
 import os
 import re
+import secrets
 import socket
+import ssl
 import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.error import HTTPError
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener, urlopen
 
 import websocket
 import yaml
@@ -131,7 +137,31 @@ def normalize_page(page):
         "theme": theme,
         "favicon": asset_url(page["favicon"], "page.favicon") if page.get("favicon") else None,
         "background": background or None,
+        "hint_delay": int(number(page.get("hint_delay", 600), "page.hint_delay", 0, 5000)),
+        "world_clock": normalize_world_clock(page.get("world_clock")),
     }
+
+
+TIMEZONE = re.compile(r"^[A-Za-z]+(?:/[A-Za-z0-9_+-]+){0,2}$")
+
+
+def normalize_world_clock(value):
+    """page.world_clock: [{name, timezone}] shown when hovering the clock; off / [] / missing = no hint.
+    Zone names (IANA, e.g. Europe/Kyiv) are checked by the browser, which owns the time zone data."""
+    if value in (None, False, []):
+        return []
+    if not isinstance(value, list):
+        raise ValueError("page.world_clock must be a list of {name, timezone} (or off)")
+    cities = []
+    for i, city in enumerate(value, 1):
+        where = f"page.world_clock #{i}"
+        if not isinstance(city, dict) or not city.get("name") or not city.get("timezone"):
+            raise ValueError(f"{where}: 'name' and 'timezone' are required, e.g. {{name: Kyiv, timezone: Europe/Kyiv}}")
+        zone = str(city["timezone"])
+        if not TIMEZONE.match(zone):
+            raise ValueError(f"{where}: timezone must be an IANA zone name such as Europe/Kyiv or America/New_York")
+        cities.append({"name": str(city["name"])[:40], "timezone": zone})
+    return cities[:6]
 
 
 def normalize_schedule(value):
@@ -167,6 +197,59 @@ def health_target(service, where, url):
     if HOST_PORT.fullmatch(str(check)):
         return str(check)
     raise ValueError(f"{where}: check must be true, false, url or host:port")
+
+
+# Alert thresholds (alerts: in services.yaml); a level set to off/false/null is not checked
+ALERT_DEFAULTS = {
+    "cpu_temp": {"warning": 80, "critical": 90},      # router CPU, °C
+    "memory": {"warning": 85, "critical": 95},        # router memory used, %
+    "load": {"warning": 3.0, "critical": 4.0},        # router 5-minute load average (Flint 2: 4 cores)
+    "dns_avg_ms": {"warning": 100, "critical": None},       # AdGuard average processing time, ms
+    "dns_upstream_ms": {"warning": 150, "critical": None},  # average answer time of any upstream, ms
+}
+ALERT_FLAGS = {"router_unreachable": True, "wan_down": True}
+ALERT_MINUTES = {"router_restart_minutes": 15, "wan_event_minutes": 15}
+# Last speed test against the internet plan: Mbps of the plan, alert below these % of it
+SPEEDTEST_ALERT = {"download": None, "upload": None, "warning": 50, "critical": 25}
+
+
+def normalize_alerts(raw):
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("alerts must be a mapping")
+    unknown = set(raw) - set(ALERT_DEFAULTS) - set(ALERT_FLAGS) - set(ALERT_MINUTES) - {"speedtest"}
+    if unknown:
+        raise ValueError(f"alerts: unknown key {sorted(unknown)[0]!r}")
+    result = {}
+    for key, default in ALERT_DEFAULTS.items():
+        value = raw.get(key, default)
+        if value in (False, None):
+            value = {"warning": None, "critical": None}
+        if not isinstance(value, dict) or set(value) - {"warning", "critical"}:
+            raise ValueError(f"alerts.{key} must be a mapping with warning and/or critical (or off)")
+        levels = {}
+        for level in ("warning", "critical"):
+            v = value.get(level, default[level]) if key in raw else default[level]
+            levels[level] = None if v in (False, None) else number(v, f"alerts.{key}.{level}", 0, 100000)
+        result[key] = levels
+    for key, default in ALERT_FLAGS.items():
+        value = raw.get(key, default)
+        if not isinstance(value, bool):
+            raise ValueError(f"alerts.{key} must be true or false")
+        result[key] = value
+    for key, default in ALERT_MINUTES.items():
+        value = raw.get(key, default)
+        result[key] = 0 if value is False else int(number(value, f"alerts.{key}", 0, 1440))
+    speed = raw.get("speedtest") or {}
+    if not isinstance(speed, dict) or set(speed) - set(SPEEDTEST_ALERT):
+        raise ValueError("alerts.speedtest must be a mapping with download, upload, warning, critical")
+    result["speedtest"] = {}
+    for key, default in SPEEDTEST_ALERT.items():
+        value = speed.get(key, default)
+        high = 100000 if key in ("download", "upload") else 100
+        result["speedtest"][key] = None if value in (False, None) else number(value, f"alerts.speedtest.{key}", 1, high)
+    return result
 
 
 def normalize_config(raw):
@@ -206,6 +289,7 @@ def normalize_config(raw):
         "network": {key: str(network.get(key) or "") for key in ("subnet", "label", "router")},
         "groups": groups,
         "speedtest": {"schedule": normalize_schedule((raw.get("speedtest") or {}).get("schedule"))},
+        "alerts": normalize_alerts(raw.get("alerts")),
     }
 
 
@@ -448,6 +532,10 @@ class State:
         with self._lock:
             return (self._sources.get(name) or {}).get("data")
 
+    def source(self, name):
+        with self._lock:
+            return dict(self._sources.get(name) or {})
+
     def snapshot(self):
         with self._lock:
             return json.dumps({"now": time.time(), "interval": POLL_SECONDS, "sources": self._sources})
@@ -545,6 +633,16 @@ class History:
             self._tests.append(entry)
             self._dirty = True
             self._save(force=True)
+
+    def last_speedtest(self):
+        with self._lock:
+            return dict(self._tests[-1]) if self._tests else None
+
+    def recent(self, kinds, seconds):
+        """Newest event of one of these kinds from the last `seconds`, or None."""
+        since = time.time() - seconds
+        with self._lock:
+            return next((dict(e) for e in reversed(self._events) if e["t"] >= since and e.get("kind") in kinds), None)
 
     def event(self, kind, text):
         with self._lock:
@@ -670,6 +768,71 @@ def poll_dns(gl):
     }
 
 
+def _ago(seconds):
+    return "just now" if seconds < 60 else f"{_duration(seconds)} ago"
+
+
+def compute_alerts(state):
+    """Warnings and critical conditions shown next to "Live" on the page, most severe first.
+
+    [{"id", "level": "warning"|"critical", "text"}]; thresholds come from alerts: in services.yaml.
+    """
+    cfg = (SITE.get()["config"] or {}).get("alerts") or normalize_alerts({})
+    alerts = []
+
+    def check(key, value, text):
+        levels = cfg[key]
+        for level in ("critical", "warning"):
+            if value is not None and levels[level] is not None and value >= levels[level]:
+                alerts.append({"id": key, "level": level, "text": text})
+                return
+
+    router = state.source("router")
+    stale = not router.get("updated") or time.time() - router["updated"] > POLL_SECONDS * 3
+    if router.get("error") or stale:
+        if cfg["router_unreachable"]:
+            alerts.append({"id": "router_unreachable", "level": "critical",
+                           "text": f"No data from the router: {router.get('error') or 'no answer'}"})
+    else:
+        r = router.get("data") or {}
+        if cfg["wan_down"] and r.get("wan_online") is False:
+            alerts.append({"id": "wan_down", "level": "critical", "text": "Internet is down: the WAN is offline"})
+        check("cpu_temp", r.get("cpu_temp"), f"Router CPU is hot: {r.get('cpu_temp')} °C")
+        if r.get("memory_used") is not None:
+            check("memory", r["memory_used"] * 100, f"Router memory {round(r['memory_used'] * 100)} % used")
+        load = r.get("load") or []
+        if len(load) > 1:
+            check("load", load[1], f"Router load {load[1]:.2f} (5 min average)")
+        minutes = cfg["router_restart_minutes"]
+        if minutes and r.get("uptime") is not None and r["uptime"] < minutes * 60:
+            alerts.append({"id": "router_restart", "level": "warning", "text": f"Router restarted {_ago(r['uptime'])}"})
+    minutes = cfg["wan_event_minutes"]
+    event = minutes and HISTORY.recent(("reconnect", "up", "ip"), minutes * 60)
+    if event and not any(a["id"] == "wan_down" for a in alerts):
+        alerts.append({"id": "wan_event", "level": "warning", "text": f"{event['text']} · {_ago(time.time() - event['t'])}"})
+    speed, test = cfg["speedtest"], HISTORY.last_speedtest()
+    if test:
+        # The worse of download/upload as % of the plan decides the level; shown until the next test
+        shares = [(test[k] / speed[key] * 100, key, test[k]) for k, key in (("down", "download"), ("up", "upload"))
+                  if speed[key] and test.get(k) is not None]
+        if shares:
+            share, key, mbps = min(shares)
+            for level in ("critical", "warning"):
+                if speed[level] is not None and share < speed[level]:
+                    alerts.append({"id": "speedtest", "level": level,
+                                   "text": f"Slow speed test: {key} {round(mbps)} Mbps, {round(share)} % of "
+                                           f"{speed[key]:g} Mbps ({_ago(time.time() - test['t'])})"})
+                    break
+    dns = state.source("dns")
+    if dns.get("data") and not dns.get("error"):
+        d = dns["data"]
+        check("dns_avg_ms", d.get("avg_ms"), f"Slow DNS: {d.get('avg_ms')} ms average")
+        for up in d.get("upstreams") or []:
+            check("dns_upstream_ms", up.get("avg_ms"), f"Slow DNS upstream {up['name'].removesuffix(':53')}: {up.get('avg_ms')} ms")
+    alerts.sort(key=lambda a: a["level"] != "critical")
+    return alerts
+
+
 def poll_loop(gl, luci, state):
     wan = WanCounters()
     jobs = (("router", lambda: poll_router(gl)), ("wan", lambda: wan.poll(luci)), ("dns", lambda: poll_dns(gl)),
@@ -681,6 +844,10 @@ def poll_loop(gl, luci, state):
                 state.ok(name, job())
             except Exception as exc:  # keep polling whatever a single source does
                 state.fail(name, exc)
+        try:
+            state.ok("alerts", compute_alerts(state))
+        except Exception as exc:
+            state.fail("alerts", exc)
         time.sleep(max(1.0, POLL_SECONDS - (time.monotonic() - started)))
 
 
@@ -1379,6 +1546,247 @@ def clean_location(value):
 WALLPAPER = Wallpaper(ROOT / "data" / "wallpapers")
 
 
+class WebRedirect(HTTPRedirectHandler):
+    """Follows redirects for link previews, but only to http(s): never file:, ftp: or data:."""
+
+    max_redirections = 5
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urlsplit(newurl).scheme not in ("http", "https"):
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+class PageHead(HTMLParser):
+    """Collects <title>, og:site_name, <meta charset> and icon <link>s from a page's <head>."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.title, self.site_name, self.icons, self._in_title, self.done = "", "", [], False, False
+
+    def handle_starttag(self, tag, attrs):
+        a = {k: (v or "") for k, v in attrs}
+        if tag == "title":
+            self._in_title = True
+        elif tag == "meta" and a.get("property", a.get("name", "")).lower() == "og:site_name":
+            self.site_name = a.get("content", "")
+        elif tag == "link" and a.get("href"):
+            rels = a.get("rel", "").lower().split()
+            if "icon" in rels or "apple-touch-icon" in rels or "apple-touch-icon-precomposed" in rels:
+                self.icons.append(a)
+        elif tag == "body":
+            self.done = True
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in_title = False
+        elif tag == "head":
+            self.done = True
+
+    def handle_data(self, data):
+        if self._in_title and not self.title_done():
+            self.title += data
+
+    def title_done(self):
+        return len(self.title) > 300
+
+
+class Bookmarks:
+    """Quick links under the search box, edited on the page and kept in data/bookmarks.json.
+
+    A link is {"id", "url", "name", "title", "icon", "state"}: name is what was typed on the page
+    (may be empty), title the page's own name and icon its favicon cached in data/favicons/. Both are
+    fetched in the background when a link is added or its URL changes ("state": "pending" until then);
+    a link whose page could not be read is retried after RETRY_SECONDS. Only http(s) URLs are fetched,
+    redirects included, and only the start of the page and a small image are read.
+    """
+
+    MAX_LINKS = 40
+    MAX_PAGE = 512 * 1024
+    MAX_ICON = 256 * 1024
+    RETRY_SECONDS = 6 * 3600
+    UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36"
+    ICON_TYPES = {"png": "image/png", "ico": "image/x-icon", "svg": "image/svg+xml", "gif": "image/gif",
+                  "jpg": "image/jpeg", "webp": "image/webp"}
+
+    def __init__(self, path):
+        self.path = path
+        self.icons = path.parent / "favicons"
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._opener = build_opener(WebRedirect)
+        self._insecure = build_opener(WebRedirect, HTTPSHandler(context=ssl._create_unverified_context()))
+        try:
+            self._links = [l for l in json.loads(path.read_text(encoding="utf-8")).get("links", []) if isinstance(l, dict)]
+        except (OSError, ValueError, AttributeError):
+            self._links = []
+        self._wake.set()  # links still pending from before a restart
+
+    def get(self):
+        with self._lock:
+            return {"links": [{k: l.get(k) for k in ("id", "url", "name", "title", "icon", "state")} for l in self._links]}
+
+    @staticmethod
+    def clean_url(value):
+        url = str(value or "").strip()
+        parts = urlsplit(url)
+        if len(url) > 2048 or parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError(f"not a web address: {url[:80] or '(empty)'} (http:// or https:// only)")
+        return url
+
+    def replace(self, items):
+        """Saves the list sent by the page editor: [{"id"?, "url", "name", "refresh"?}] in display order."""
+        if not isinstance(items, list) or len(items) > self.MAX_LINKS:
+            raise ValueError(f"up to {self.MAX_LINKS} links")
+        with self._lock:
+            old = {l["id"]: l for l in self._links}
+            links = []
+            for item in items:
+                if not isinstance(item, dict):
+                    raise ValueError("each link must be {\"url\": ..., \"name\": ...}")
+                url, name = self.clean_url(item.get("url")), " ".join(str(item.get("name") or "").split())
+                if len(name) > 60:
+                    raise ValueError("a name is longer than 60 characters")
+                prev = old.get(item.get("id"))
+                if prev and prev["url"] == url and item.get("refresh") is not True:
+                    links.append({**prev, "name": name})
+                else:
+                    links.append({"id": prev["id"] if prev else secrets.token_hex(4), "url": url, "name": name,
+                                  "title": "", "icon": None, "state": "pending", "checked": 0})
+            self._links = links
+            self._save()
+        self._cleanup()
+        self._wake.set()
+        return self.get()
+
+    def _save(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"links": self._links}, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(self.path)
+        except OSError as exc:
+            LOG.warning("quick links not saved: %s", exc)
+
+    def _cleanup(self):
+        with self._lock:
+            used = {l.get("icon") for l in self._links}
+        for file in self.icons.glob("*") if self.icons.is_dir() else []:
+            if file.name not in used:
+                file.unlink(missing_ok=True)
+
+    def loop(self):
+        while True:
+            self._wake.wait(3600)
+            self._wake.clear()
+            while True:
+                now = time.time()
+                with self._lock:
+                    todo = next((dict(l) for l in self._links if l.get("state") == "pending"
+                                 or (l.get("state") == "failed" and now - l.get("checked", 0) > self.RETRY_SECONDS)), None)
+                if not todo:
+                    break
+                title, icon, ok = self._preview(todo)
+                with self._lock:
+                    for l in self._links:
+                        if l["id"] == todo["id"] and l["url"] == todo["url"]:
+                            l.update(title=title, icon=icon or l.get("icon"), state="ok" if ok else "failed", checked=time.time())
+                    self._save()
+                self._cleanup()
+
+    def _open(self, url, limit, accept):
+        """(final URL, Content-Type, body up to limit bytes); retries without certificate checks for
+        self-signed LAN services: only a title and an icon are read, nothing is sent."""
+        if urlsplit(url).scheme not in ("http", "https"):
+            raise ValueError("not http(s)")
+        req = Request(url, headers={"User-Agent": self.UA, "Accept": accept, "Accept-Language": "en,*;q=0.5"})
+        try:
+            resp = self._opener.open(req, timeout=8)
+        except URLError as exc:
+            if not isinstance(exc.reason, ssl.SSLCertVerificationError):
+                raise
+            resp = self._insecure.open(req, timeout=8)
+        with resp:
+            return resp.geturl(), resp.headers.get("Content-Type", ""), resp.read(limit + 1)[:limit]
+
+    def _preview(self, link):
+        """(title, cached icon file name or None, page was readable)."""
+        url, head, final = link["url"], PageHead(), link["url"]
+        try:
+            final, ctype, body = self._open(url, self.MAX_PAGE, "text/html,application/xhtml+xml,*/*;q=0.8")
+            charset = re.search(r"charset=([\w-]+)", ctype) or re.search(rb"<meta[^>]+charset=[\"']?([\w-]+)", body[:4096], re.I)
+            try:
+                text = body.decode(charset[1] if isinstance(charset[1], str) else charset[1].decode()) if charset else body.decode("utf-8")
+            except (LookupError, UnicodeDecodeError):
+                text = body.decode("utf-8", errors="replace")
+            for chunk in range(0, len(text), 8192):
+                head.feed(text[chunk:chunk + 8192])
+                if head.done:
+                    break
+            ok = True
+        except Exception as exc:  # unreachable, refused, not a page: keep the host as the name, try /favicon.ico
+            LOG.info("quick link %s: page not readable (%s)", url, exc)
+            ok = False
+        title = " ".join(head.title.split()) or ""
+        site = " ".join(head.site_name.split())
+        if len(title) > 30:
+            # Long page titles ("Repo · Build and ship software ... · GitHub") do not fit a pill: the site name,
+            # else the first part before a separator ("Українська правда - новини онлайн" -> "Українська правда")
+            first = re.split(r"\s+[-|·—–:]\s+|:\s+", title, maxsplit=1)[0].strip()
+            title = site or (first if 3 <= len(first) < len(title) else title)
+        icon = self._icon(link["id"], final, head.icons)
+        return title[:120], icon, ok
+
+    def _icon(self, link_id, page_url, icons):
+        def score(a):
+            sizes = [int(n) for n in re.findall(r"(\d+)x\d+", a.get("sizes", ""))]
+            svg = a.get("type", "").endswith("svg+xml") or urlsplit(a["href"]).path.lower().endswith(".svg")
+            size = max(sizes) if sizes else (180 if "apple-touch-icon" in a.get("rel", "") else 32)
+            return (0 if svg else 1, abs(size - 64))  # vector first, then the size nearest 64 px (crisp at 2x)
+        candidates = [urljoin(page_url, a["href"]) for a in sorted(icons, key=score)]
+        root = urlsplit(page_url)
+        candidates.append(urlunsplit((root.scheme, root.netloc, "/favicon.ico", "", "")))
+        for src in dict.fromkeys(candidates):
+            try:
+                if src.startswith("data:image/"):
+                    meta, _, payload = src.partition(",")
+                    data = base64.b64decode(payload) if meta.endswith(";base64") else unquote(payload).encode()
+                else:
+                    _, _, data = self._open(src, self.MAX_ICON, "image/*")
+                ext = self._image_type(data)
+                if not ext:
+                    continue
+                self.icons.mkdir(parents=True, exist_ok=True)
+                name = f"{link_id}-{hashlib.sha256(data).hexdigest()[:10]}.{ext}"
+                (self.icons / name).write_bytes(data)
+                return name
+            except Exception:
+                continue
+        return None
+
+    @staticmethod
+    def _image_type(data):
+        """File type from the image bytes: the Content-Type of favicons is often wrong."""
+        if len(data) < 16 or len(data) >= Bookmarks.MAX_ICON:
+            return None
+        if data.startswith(b"\x89PNG"):
+            return "png"
+        if data[:4] == b"\x00\x00\x01\x00":
+            return "ico"
+        if data[:6] in (b"GIF87a", b"GIF89a"):
+            return "gif"
+        if data[:3] == b"\xff\xd8\xff":
+            return "jpg"
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return "webp"
+        if b"<svg" in data[:1024].lower():
+            return "svg"
+        return None
+
+
+BOOKMARKS = Bookmarks(ROOT / "data" / "bookmarks.json")
+
+
 def site_config():
     """services.yaml, with a wallpaper set from the page replacing page.background.image."""
     result = SITE.get()
@@ -1504,6 +1912,18 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, STATE.snapshot().encode(), "application/json")
         elif path == "/api/config":
             self._json(200, site_config())
+        elif path == "/api/bookmarks":
+            self._json(200, BOOKMARKS.get())
+        elif path.startswith("/media/favicons/"):
+            name = path[len("/media/favicons/"):]
+            ext = name.rsplit(".", 1)[-1]
+            file = BOOKMARKS.icons / name
+            if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{10}\.\w+", name) and ext in Bookmarks.ICON_TYPES and file.is_file():
+                # SVG can carry scripts: forbid them in case the file is opened directly
+                headers = {"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'"} if ext == "svg" else None
+                self._send(200, file.read_bytes(), Bookmarks.ICON_TYPES[ext], cache="public, max-age=86400", headers=headers)
+            else:
+                self.send_error(404)
         elif path.startswith("/media/"):
             name = path[len("/media/"):]
             file = WALLPAPER.folder / name
@@ -1522,7 +1942,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def _read_json(self):
+    def _read_json(self, limit=4096):
         """JSON body of a POST; None unless it was sent as application/json.
 
         A JSON content type forces a CORS preflight (which this server never approves),
@@ -1532,7 +1952,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(415, {"error": "Content-Type must be application/json"})
             return None
         try:
-            length = min(int(self.headers.get("Content-Length") or 0), 4096)
+            length = min(int(self.headers.get("Content-Length") or 0), limit)
             body = json.loads(self.rfile.read(length) or b"{}")
             return body if isinstance(body, dict) else {}
         except ValueError:
@@ -1540,11 +1960,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if path not in ("/api/speedtest", "/api/background", "/api/wan/reconnect", "/api/dns/protection", "/api/vpn"):
+        if path not in ("/api/speedtest", "/api/background", "/api/wan/reconnect", "/api/dns/protection", "/api/vpn", "/api/bookmarks"):
             self.send_error(404)
             return
-        body = self._read_json()
+        body = self._read_json(limit=192 * 1024 if path == "/api/bookmarks" else 4096)
         if body is None:
+            return
+        if path == "/api/bookmarks":
+            try:
+                self._json(200, {"ok": True, **BOOKMARKS.replace(body.get("links"))})
+            except ValueError as exc:
+                self._json(400, {"error": str(exc)})
             return
         if path == "/api/background":
             self._background(body)
@@ -1637,5 +2063,6 @@ if __name__ == "__main__":
     threading.Thread(target=SCHEDULE.loop, name="schedule", daemon=True).start()
     threading.Thread(target=HEALTH.loop, name="health", daemon=True).start()
     threading.Thread(target=VPN_EXIT.loop, name="vpn-exit", daemon=True).start()
+    threading.Thread(target=BOOKMARKS.loop, name="bookmarks", daemon=True).start()
     LOG.info("serving on :%d, polling %s every %d s", PORT, GL_HOST, POLL_SECONDS)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

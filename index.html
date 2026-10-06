@@ -60,19 +60,19 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 0.875rem/1.45 v
    cards and inputs keep the theme colours */
 body.bg-dark #backdrop::after { background: #0d1220; }
 body.bg-light #backdrop::after { background: #eef1f6; }
-body.bg-dark :is(header .brand, header .clock, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
+body.bg-dark :is(header .brand, header .clock, .section-head h2, .group h3, #empty, footer, #corner) {
   --fg: #e6eaf5; --muted: #b4bdd3; --line: rgb(255 255 255 / 0.22); --accent: #7d9bff;
 }
-body.bg-light :is(header .brand, header .clock, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
+body.bg-light :is(header .brand, header .clock, .section-head h2, .group h3, #empty, footer, #corner) {
   --fg: #16203a; --muted: #4a5470; --line: rgb(22 32 58 / 0.2); --accent: #2f55d4;
 }
 body:is(.bg-dark, .bg-light) :is(header .brand, header .clock) { color: var(--fg); }
 /* Keep text readable over busy/bright parts of the photo: a soft shadow in the opposite tone,
    and the quote in the main text colour instead of the muted one */
-body.bg-dark :is(header .brand, header .clock, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
+body.bg-dark :is(header .brand, header .clock, .section-head h2, .group h3, #empty, footer, #corner) {
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.75), 0 0 0.75rem rgb(0 0 0 / 0.55);
 }
-body.bg-light :is(header .brand, header .clock, #router-line, .section-head h2, .group h3, #empty, footer, #corner) {
+body.bg-light :is(header .brand, header .clock, .section-head h2, .group h3, #empty, footer, #corner) {
   text-shadow: 0 1px 2px rgb(255 255 255 / 0.8), 0 0 0.75rem rgb(255 255 255 / 0.6);
 }
 body:is(.bg-dark, .bg-light) footer q { color: var(--fg); }
@@ -80,10 +80,6 @@ body:is(.bg-dark, .bg-light) footer q { color: var(--fg); }
 body:is(.bg-dark, .bg-light) footer { backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 body.bg-dark footer { background: rgb(13 18 32 / 0.55); }
 body.bg-light footer { background: rgb(238 241 246 / 0.6); }
-/* Same strip for the router stats line */
-body:is(.bg-dark, .bg-light) #router-line { padding: 0.3125rem 0.75rem; border-radius: 0.5rem; color: var(--fg); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-body.bg-dark #router-line { background: rgb(13 18 32 / 0.55); }
-body.bg-light #router-line { background: rgb(238 241 246 / 0.6); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .wrap { flex: 1 0 auto; width: 100%; max-width: 80rem; margin: 0 auto; padding: 1.25rem 1.25rem 1rem; display: grid; gap: 1.125rem; align-content: start; }
 .bottom-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1.5rem; padding: 0 0.75rem 0.75rem; }
@@ -96,10 +92,13 @@ header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-i
 .clock { text-align: right; font-variant-numeric: tabular-nums; }
 .clock .time { font: 500 1.75rem/1 var(--display); }
 .clock .date { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
-@media (max-width: 760px) { header { grid-template-columns: 1fr auto; } .search { grid-column: 1 / -1; grid-row: 2; } }
+.clock[data-hint] { cursor: default; }
+@media (max-width: 760px) { header { grid-template-columns: 1fr auto; } .header-mid { grid-column: 1 / -1; grid-row: 2; } }
 
 .search, .filter { display: flex; align-items: center; gap: 0.625rem; background: var(--surface); border: 1px solid var(--line); border-radius: 0.625rem; }
-.search { justify-self: center; width: min(40rem, 100%); height: 2.875rem; padding: 0 1rem; }
+.header-mid { position: relative; justify-self: center; width: min(40rem, 100%); display: flex; gap: 0.5rem; }
+.header-mid .search { flex: 1; min-width: 0; }
+.search { height: 2.875rem; padding: 0 1rem; }
 .filter { flex: none; width: min(16.25rem, 50vw); height: 2rem; padding: 0 0.625rem; }
 .search svg, .filter svg { flex: none; color: var(--muted); }
 .search svg { width: 1.125rem; height: 1.125rem; }
@@ -173,9 +172,11 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn:disabled { opacity: 0.55; cursor: default; }
 /* History window */
-#history, #devices, #vpn { width: min(64rem, 94vw); max-height: 90vh; padding: 0; border: 1px solid var(--line); border-radius: 0.875rem; background: var(--surface); color: var(--fg); box-shadow: 0 1rem 3rem rgb(0 0 0 / 0.35); }
-#history::backdrop, #devices::backdrop, #vpn::backdrop { background: rgb(0 0 0 / 0.5); }
+#history, #devices, #vpn, #settings { width: min(64rem, 94vw); max-height: 90vh; padding: 0; border: 1px solid var(--line); border-radius: 0.875rem; background: var(--surface); color: var(--fg); box-shadow: 0 1rem 3rem rgb(0 0 0 / 0.35); }
+#history::backdrop, #devices::backdrop, #vpn::backdrop, #settings::backdrop { background: rgb(0 0 0 / 0.5); }
 #vpn { width: min(30rem, 94vw); }
+/* Devices opens at the top: filtering shrinks the table downwards, the header with the filter stays put */
+#devices { margin-top: 5vh; }
 .vpn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
 .vpn-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.25rem 1rem; padding: 0.625rem 0.75rem; border: 1px solid var(--line); border-radius: 0.625rem; }
 .vpn-list .vpn-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -192,6 +193,9 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .dev-table th button[aria-sort="ascending"]::after { content: " ▴"; }
 .dev-table td.name { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
 .dev-table .quiet { color: var(--muted); }
+/* Filter sits in the window header, opposite the title */
+.dev-filter { flex: 0 1 18rem; height: 1.875rem; margin: 0 0.75rem 0 auto; }
+.dev-empty td { color: var(--muted); text-align: left; padding: 0.75rem 0.5rem; }
 .dev-new { margin-left: 0.375rem; padding: 0 0.3125rem; border-radius: 0.25rem; background: var(--accent-soft); color: var(--accent); font-size: 0.6875rem; font-weight: 600; }
 [data-hint]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 .top-now { display: block; width: 100%; padding: 0; border: 0; background: none; text-align: left; font: inherit; font-size: 0.75rem; color: var(--muted); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -199,8 +203,6 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .top-now b { font-weight: 600; color: var(--fg); }
 .ip-link { color: inherit; text-decoration: underline dotted; text-underline-offset: 0.2em; }
 .ip-link:hover { color: var(--accent); }
-.link-btn { padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 0.2em; }
-.link-btn:hover { color: var(--accent); }
 .hist-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--line); }
 .hist-head h2 { margin: 0; font: 600 1rem var(--body); }
 .hist-body { display: grid; gap: 1.5rem; padding: 1rem 1.25rem 1.25rem; }
@@ -208,9 +210,24 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .hist-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; font-size: 0.8125rem; }
 .hist-title h3 { margin: 0; font: 600 0.875rem var(--body); }
 .hist-title .muted { margin-left: auto; }
+.hist-fold { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.hist-fold:hover { color: var(--accent); }
+.hist-fold svg { width: 0.875rem; height: 0.875rem; color: var(--muted); transition: transform 0.15s; }
+.hist-block.folded .hist-fold svg { transform: rotate(-90deg); }
+.hist-block.folded .chart, .hist-block.folded details, .hist-block.folded .legend,
+.hist-block.folded .hist-events, .hist-block.folded .hist-kinds, .hist-block.folded .hist-filter { display: none; }
+.hist-block:not(.folded) #hist-events-sum { display: none; }  /* the event count only stands in for the folded list */
+.hist-kinds { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.hist-kinds[hidden] { display: none; }
+.hist-kinds button { font: 500 0.6875rem/1 var(--body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.25rem 0.5625rem; cursor: pointer; }
+.hist-kinds button:hover { color: var(--fg); }
+.hist-kinds button[aria-pressed="true"] { color: var(--fg); background: var(--chip); border-color: var(--accent); }
+.hist-kinds .n { margin-left: 0.25rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.hist-filter { width: min(13rem, 100%); height: 1.75rem; margin-left: auto; }
 .hist-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.375rem; font-size: 0.8125rem; max-height: 12rem; overflow: auto; }
 .hist-events li { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 0.75rem; }
 .hist-events time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.hist-events li.hist-empty { display: block; }
 .hist-empty { margin: 0; color: var(--muted); font-size: 0.8125rem; }
 .chip-status { display: inline-flex; align-items: center; gap: 0.3125rem; color: var(--fg); }
 .chip-status .sdot { width: 0.4375rem; height: 0.4375rem; }
@@ -238,10 +255,26 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .muted { color: var(--muted); }
 .note { margin: 0; color: var(--muted); font-size: 0.75rem; }
 /* Router stats row, as wide as the cards: router left, DNS upstreams centred, update time right */
-.router-line { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.25rem 1.5rem; }
-.router-line > :nth-child(2) { justify-self: center; }
-.router-line > :nth-child(3) { justify-self: end; }
-@media (max-width: 900px) { .router-line { display: flex; flex-wrap: wrap; justify-content: space-between; } }
+/* Alerts: centred on the "Network" line, solid status colour; "+N" badge when there are more (all in the hint).
+   On narrow screens they move to their own row under the heading. */
+#live .section-head { position: relative; }
+.alerts { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; justify-content: center; max-width: 42%; }
+@media (max-width: 760px) {
+  #live .section-head { flex-wrap: wrap; }
+  .alerts { position: static; transform: none; order: 9; flex-basis: 100%; max-width: none; }
+}
+.alert { display: inline-flex; align-items: center; gap: 0.4375rem; min-width: 0; max-width: 100%; padding: 0.3125rem 0.375rem 0.3125rem 0.625rem; border-radius: 0.5rem; font: 600 0.8125rem/1.2 var(--body); box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 0.3); }
+.alert svg { width: 1rem; height: 1rem; flex: none; }
+.alert #alert-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 0.25rem; }
+.alert .more { flex: none; min-width: 1.5rem; padding: 0.125rem 0.4375rem; border-radius: 0.3125rem; font: 700 0.75rem/1.2 var(--body); text-align: center; font-variant-numeric: tabular-nums; }
+.alert .more:empty { display: none; }
+.alert.warning { background: var(--warning); color: #241a00; }
+.alert.warning .more { background: #241a00; color: var(--warning); }
+.alert.critical { background: var(--critical); color: #fff; }
+.alert.critical .more { background: #fff; color: var(--critical); }
+.alert:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.live-state[data-hint], #dns-title[data-hint] { cursor: default; }
+#devices-open .n { color: var(--muted); font-variant-numeric: tabular-nums; }
 .facts { display: flex; flex-wrap: wrap; gap: 0.125rem 1rem; font-size: 0.75rem; }
 .facts strong { font-weight: 600; }
 
@@ -295,6 +328,8 @@ details th { color: var(--muted); font-weight: 500; }
 
 #tip { position: fixed; z-index: 10; pointer-events: none; display: grid; gap: 0.1875rem; min-width: 9.375rem; padding: 0.5rem 0.625rem; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 0.5rem; box-shadow: 0 0.375rem 1.25rem rgb(0 0 0 / 0.14); font-size: 0.8125rem; }
 #tip .t { color: var(--muted); font-size: 0.75rem; }
+#tip .l { color: var(--fg); font-variant-numeric: tabular-nums; }
+#tip.center { min-width: 0; text-align: center; }
 #tip .r { display: flex; align-items: center; gap: 0.5rem; }
 #tip .r strong { font-weight: 600; font-variant-numeric: tabular-nums; }
 #tip .r span { color: var(--muted); }
@@ -307,27 +342,81 @@ details th { color: var(--muted); font-weight: 500; }
 .corner-link[aria-expanded="true"] { opacity: 1; }
 .corner-link:hover, .corner-link:focus-visible { opacity: 1; text-decoration: underline; }
 .corner-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
-#theme-toggle { width: 1.75rem; height: 1.75rem; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); opacity: 0.35; cursor: pointer; transition: opacity .15s; }
-#theme-toggle:hover, #theme-toggle:focus-visible { opacity: 1; }
-#theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-#theme-toggle svg { width: 1rem; height: 1rem; }
-.wp-pop { position: absolute; right: 0; bottom: calc(100% + 0.5rem); z-index: 6; width: min(26rem, calc(100vw - 1.5rem)); display: grid; gap: 0.5rem; padding: 0.75rem 0.875rem; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 0.75rem; box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 0.25); font-size: 0.8125rem; }
-.wp-pop label { font-weight: 600; }
+#theme-toggle, #settings-open { width: 1.75rem; height: 1.75rem; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); opacity: 0.35; cursor: pointer; transition: opacity .15s; }
+#theme-toggle:hover, #theme-toggle:focus-visible, #settings-open:hover, #settings-open:focus-visible { opacity: 1; }
+#theme-toggle:focus-visible, #settings-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#theme-toggle svg, #settings-open svg { width: 1rem; height: 1rem; }
+.wp-form { font-size: 0.8125rem; }
+.wp-form label { font-weight: 600; }
 .wp-row { display: flex; gap: 0.5rem; }
-.wp-pop .wp-sub { font-weight: 500; color: var(--muted); }
-.wp-pop .wp-sub span { font-weight: 400; }
-.wp-pop input { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: var(--chip); border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.3125rem 0.5rem; outline: none; }
-.wp-pop input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.wp-form .wp-sub { font-weight: 500; color: var(--muted); }
+.wp-form .wp-sub span { font-weight: 400; }
+.wp-form input { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: var(--chip); border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.3125rem 0.5rem; outline: none; }
+.wp-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .wp-hint, .wp-msg { margin: 0; color: var(--muted); font-size: 0.75rem; }
 .wp-hint a { color: var(--accent); }
 .wp-msg.error { color: var(--critical); }
 #wp-reset { justify-self: start; }
+/* Quick links: the grid button next to the search box opens a panel with the links (icon + name) */
+.ql-toggle { flex: none; display: grid; place-items: center; width: 2.875rem; height: 2.875rem; padding: 0; border: 1px solid var(--line); border-radius: 0.625rem; background: var(--surface); color: var(--muted); cursor: pointer; }
+.ql-toggle:hover, .ql-toggle[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.ql-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ql-toggle svg { width: 1.125rem; height: 1.125rem; }
+.ql-panel { position: absolute; top: calc(100% + 0.5rem); left: 50%; transform: translateX(-50%); z-index: 7; width: min(40rem, calc(100vw - 1.5rem)); display: grid; gap: 0.5rem; padding: 0.75rem; background: var(--bg); border: 1px solid var(--line); border-radius: 0.875rem; box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 0.35); }
+.ql-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(11.5rem, 100%), 1fr)); gap: 0.5rem; }
+/* Each link is a tile like the service tiles: icon box, name, and the address in blue under it */
+.ql-item { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 0 0.625rem; align-items: center; min-width: 0; padding: 0.4375rem 0.625rem; background: var(--surface); border: 1px solid var(--line); border-radius: 0.625rem; color: var(--fg); text-decoration: none; transition: border-color .15s, transform .15s; }
+.ql-item:hover { border-color: var(--accent); transform: translateY(-1px); }
+.ql-item:focus-visible { outline: 0.125rem solid var(--accent); outline-offset: 0.125rem; }
+.ql-item { position: relative; padding-right: 1.25rem; }
+.ql-item .mark .ql-ico { width: 1.5rem; height: 1.5rem; }
+/* Hotkey 1-9: tiny and faint in the top-right corner, where service tiles have their status dot */
+.ql-item kbd { position: absolute; top: 0.3125rem; right: 0.4375rem; font: 0.5rem/1 var(--mono); color: var(--muted); opacity: 0.5; }
+.ql-item .ql-letter { font-size: 0.75rem; }
+.ql-empty { margin: 0.25rem 0.375rem; color: var(--muted); font-size: 0.8125rem; }
+.ql-empty button { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.ql-ico { width: 1rem; height: 1rem; flex: none; border-radius: 0.1875rem; object-fit: contain; }
+/* Mostly-black icons on transparency (GitHub, ChatGPT) get a light plate, mostly-white ones a dark plate,
+   so they stay visible in either theme; on the matching theme the plate just blends in */
+.ql-ico.tone-dark, .ql-ico.tone-light { padding: 0.0625rem; border-radius: 0.25rem; }
+.ql-ico.tone-dark { background: #e6eaf5; }
+.ql-ico.tone-light { background: #1b2338; }
+.ql-letter { display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font: 700 0.625rem/1 var(--body); text-transform: uppercase; border-radius: 0.25rem; }
+/* Quick links editor */
+#settings { width: min(46rem, 94vw); margin-top: 5vh; }
+.set-form { display: grid; gap: 0.5rem; }
+.set-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.set-actions .spacer { flex: 1; }
+.ql-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4375rem; counter-reset: ql; }
+.ql-row { display: grid; grid-template-columns: 1rem 1.125rem 1rem minmax(0, 12rem) minmax(0, 1fr) auto; align-items: center; gap: 0.5rem; border-radius: 0.5rem; counter-increment: ql; }
+/* Position = hotkey; a CSS counter, so it follows drag, add and remove without any code */
+.ql-num { font: 0.75rem var(--mono); color: var(--muted); text-align: right; }
+.ql-num::before { content: counter(ql); }
+.ql-row:nth-child(n+10) .ql-num { opacity: 0.4; }  /* no hotkey past 9 */
+.ql-row .ql-del:hover { color: var(--critical); }
+.ql-row.dragging { background: var(--chip); box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 0.25); opacity: 0.9; }
+.ql-grip { display: grid; place-items: center; width: 1rem; height: 1.75rem; padding: 0; border: 0; border-radius: 0.25rem; background: none; color: var(--muted); cursor: grab; touch-action: none; }
+.ql-grip:hover { color: var(--fg); }
+.ql-grip:focus-visible { outline: 2px solid var(--accent); }
+.ql-row.dragging .ql-grip { cursor: grabbing; }
+.ql-grip svg { width: 0.75rem; height: 1rem; }
+.ql-row input { min-width: 0; font: inherit; font-size: 0.8125rem; color: var(--fg); background: var(--chip); border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.3125rem 0.5rem; outline: none; }
+.ql-row input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ql-row input[aria-invalid="true"] { border-color: var(--critical); }
+.ql-row .icon-btn svg { width: 0.875rem; height: 0.875rem; }
+.ql-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.ql-foot .note { flex: 1 1 18rem; }
+.ql-foot div { display: flex; gap: 0.5rem; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.1); }
+#ql-add { justify-self: start; }
+@media (max-width: 560px) { .ql-row { grid-template-columns: 1rem 1.125rem 1rem minmax(0, 1fr) auto; } .ql-row .ql-url { grid-column: 4 / -1; } }
 /* Speed test result: always one line, result on the left, age on the right */
 .st-line { display: flex; justify-content: space-between; gap: 0.75rem; white-space: nowrap; }
 .st-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .st-when { flex: none; }
 
-@media (prefers-reduced-motion: reduce) { .tile, #theme-toggle, .corner-link { transition: none; } .tile:hover { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tile, .ql-item, #theme-toggle, .corner-link { transition: none; } .tile:hover, .ql-item:hover { transform: none; } }
 </style>
 
 <div id="backdrop" hidden></div>
@@ -337,11 +426,19 @@ details th { color: var(--muted); font-weight: 500; }
       <h1 id="page-title"></h1>
       <p id="net-line"></p>
     </div>
+    <div class="header-mid">
     <form class="search" action="https://www.google.com/search" method="get" role="search">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input name="q" type="search" placeholder="Search Google" aria-label="Search Google" autocomplete="off" autofocus>
+      <input name="q" id="search-input" type="search" placeholder="Search Google" aria-label="Search Google" autocomplete="off">
     </form>
-    <div class="clock" aria-live="off">
+    <button type="button" class="ql-toggle" id="ql-toggle" aria-expanded="false" aria-controls="ql-panel" aria-label="Quick links" data-hint="Quick links · keys 1-9 open them">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>
+    </button>
+    <nav class="ql-panel" id="ql-panel" aria-label="Quick links" hidden>
+      <div class="ql-grid" id="ql-grid"></div>
+    </nav>
+    </div>
+    <div class="clock" id="clock" aria-live="off">
       <div class="time" id="time">--:--</div>
       <div class="date" id="date"></div>
     </div>
@@ -350,9 +447,10 @@ details th { color: var(--muted); font-weight: 500; }
   <!-- Live data from the collector (/api/status); stays hidden when the page is opened without it -->
   <section id="live" hidden aria-labelledby="live-title">
     <div class="section-head">
-      <h2 id="live-title">Network <span class="live-state"><i class="sdot" id="live-dot"></i><span id="live-text">Live</span></span></h2>
+      <h2 id="live-title">Network <span class="live-state" id="live-state" tabindex="0"><i class="sdot" id="live-dot"></i><span id="live-text">Live</span></span></h2>
+      <div class="alerts" role="status" aria-live="polite"><div class="alert" id="alert" tabindex="0" hidden><span id="alert-text"></span><span class="more" id="alert-more"></span></div></div>
       <button type="button" class="btn" id="vpn-open" aria-haspopup="dialog" hidden><i class="sdot" id="vpn-dot"></i><span id="vpn-label">VPN</span></button>
-      <button type="button" class="btn" id="devices-open" aria-haspopup="dialog">Devices</button>
+      <button type="button" class="btn" id="devices-open" aria-haspopup="dialog">Devices <span class="n" id="devices-n"></span></button>
       <button type="button" class="btn" id="history-open" aria-haspopup="dialog">History</button>
     </div>
     <div class="live-grid">
@@ -413,7 +511,7 @@ details th { color: var(--muted); font-weight: 500; }
 
       <article class="card dns">
         <div class="card-head">
-          <h3>DNS · AdGuard Home</h3>
+          <h3 id="dns-title">DNS · AdGuard Home</h3>
           <span class="stale" data-stale="dns" hidden>stale</span>
           <span class="chip" id="dns-protection">–</span>
           <button type="button" class="btn" id="dns-pause" hidden>⏸ Pause 30 min</button>
@@ -439,7 +537,6 @@ details th { color: var(--muted); font-weight: 500; }
         </div>
       </article>
     </div>
-    <div class="note router-line" id="router-line"><span id="rl-router"></span><span id="rl-dns"></span><span id="rl-updated"></span></div>
   </section>
 
   <section aria-labelledby="services-title">
@@ -469,8 +566,18 @@ details th { color: var(--muted); font-weight: 500; }
     </button>
   </div>
   <div class="hist-body">
-    <section class="hist-block">
-      <div class="hist-title"><h3>Speed tests</h3>
+    <section class="hist-block" data-fold="events">
+      <div class="hist-title"><h3><button type="button" class="hist-fold" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>Events</button></h3>
+        <span class="muted" id="hist-events-sum"></span>
+        <div class="hist-kinds" id="hist-kinds" role="group" aria-label="Event type"></div>
+        <label class="filter hist-filter" for="hist-filter">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="hist-filter" type="search" placeholder="Filter events" aria-label="Filter events by text" autocomplete="off">
+        </label></div>
+      <ol class="hist-events" id="hist-events"></ol>
+    </section>
+    <section class="hist-block" data-fold="speed">
+      <div class="hist-title"><h3><button type="button" class="hist-fold" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>Speed tests</button></h3>
         <div class="legend"><span><i class="key s1"></i>Download</span><span><i class="key s2"></i>Upload</span></div>
         <span class="muted" id="hist-speed-sum"></span></div>
       <div class="chart" id="hist-speed" role="img" aria-label="Speed test results over time"></div>
@@ -478,8 +585,8 @@ details th { color: var(--muted); font-weight: 500; }
         <table><thead><tr><th>Date</th><th>Download</th><th>Upload</th><th>Ping</th><th>Bufferbloat</th></tr></thead><tbody id="hist-speed-table"></tbody></table>
       </details>
     </section>
-    <section class="hist-block">
-      <div class="hist-title"><h3>Traffic per day</h3>
+    <section class="hist-block" data-fold="traffic">
+      <div class="hist-title"><h3><button type="button" class="hist-fold" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>Traffic per day</button></h3>
         <div class="legend"><span><i class="key box s1"></i>Received</span><span><i class="key box s2"></i>Sent</span></div>
         <span class="muted" id="hist-traffic-sum"></span></div>
       <div class="chart" id="hist-traffic" role="img" aria-label="WAN traffic per day, last 30 days"></div>
@@ -487,14 +594,52 @@ details th { color: var(--muted); font-weight: 500; }
         <table><thead><tr><th>Day</th><th>Received</th><th>Sent</th></tr></thead><tbody id="hist-traffic-table"></tbody></table>
       </details>
     </section>
-    <section class="hist-block">
-      <div class="hist-title"><h3>WAN events</h3><span class="muted">drops, reconnects and public IP changes</span></div>
-      <ol class="hist-events" id="hist-events"></ol>
-    </section>
     <p class="note">Kept by the collector from the moment it runs. Traffic comes from the router's WAN counters, so with hardware NAT it can be under-counted.</p>
   </div>
 </dialog>
 <!-- VPN window: the router's VPN client tunnels with an on/off switch each (vpn-client.set_tunnel) -->
+<!-- Settings: everything changed from the page (quick links, wallpaper), kept by the collector in data/ -->
+<dialog id="settings" aria-labelledby="settings-title">
+  <div class="hist-head">
+    <h2 id="settings-title">Settings</h2>
+    <button type="button" class="icon-btn" id="settings-close" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="hist-body">
+    <section class="hist-block" aria-labelledby="set-links-title">
+      <div class="hist-title"><h3 id="set-links-title">Quick links</h3><span class="muted">the grid button next to the search box; keys 1-9 open the first nine</span></div>
+      <form id="ql-form" class="set-form" novalidate>
+        <ol class="ql-list" id="ql-list"></ol>
+        <div class="set-actions">
+          <button type="button" class="btn" id="ql-add">+ Add link</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn" id="ql-cancel">Revert</button>
+          <button type="submit" class="btn primary" id="ql-save">Save links</button>
+        </div>
+        <p class="wp-msg" id="ql-msg" role="status" hidden></p>
+        <p class="note">Leave the name empty to use the page's own title. Titles and icons are fetched by the dashboard and cached.</p>
+      </form>
+    </section>
+    <section class="hist-block" aria-labelledby="set-wallpaper-title">
+      <div class="hist-title"><h3 id="set-wallpaper-title">Wallpaper</h3><span class="muted">a photo from Unsplash instead of the config background</span></div>
+      <form class="set-form wp-form" id="wp-form">
+        <label for="wp-url">Unsplash photo link</label>
+        <input id="wp-url" type="url" placeholder="https://unsplash.com/photos/…" autocomplete="off">
+        <label for="wp-location" class="wp-sub">Location <span>(optional)</span></label>
+        <div class="wp-row">
+          <input id="wp-location" type="text" placeholder="e.g. Vestrahorn, Iceland" maxlength="80" autocomplete="off">
+          <button type="submit" class="btn primary" id="wp-apply">Apply</button>
+        </div>
+        <p class="wp-hint">Paste the link of a photo page; the photo, its author and (with an Unsplash API key) its location are fetched automatically.
+          <a href="https://unsplash.com/wallpapers/desktop" target="_blank" rel="noopener">Browse wallpapers ↗</a></p>
+        <p class="wp-msg" id="wp-msg" role="status" hidden></p>
+        <button type="button" class="btn" id="wp-reset" hidden>Back to the config background</button>
+      </form>
+    </section>
+  </div>
+</dialog>
+
 <dialog id="vpn" aria-labelledby="vpn-title">
   <div class="hist-head">
     <h2 id="vpn-title">VPN</h2>
@@ -512,6 +657,10 @@ details th { color: var(--muted); font-weight: 500; }
 <dialog id="devices" aria-labelledby="devices-title">
   <div class="hist-head">
     <h2 id="devices-title">Devices <span class="muted" id="devices-count"></span></h2>
+    <label class="filter dev-filter" for="devices-filter">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="devices-filter" type="search" placeholder="Filter by name, IP or MAC" aria-label="Filter devices by name, IP or MAC" autocomplete="off">
+    </label>
     <button type="button" class="icon-btn" id="devices-close" aria-label="Close">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
     </button>
@@ -540,23 +689,9 @@ details th { color: var(--muted); font-weight: 500; }
 <div class="bottom-bar">
   <footer id="footer" hidden><q id="quote-text"></q><span class="author" id="quote-author"></span><a class="source" id="quote-source" target="_blank" rel="noopener"></a></footer>
   <div class="corner-wrap">
-    <!-- Wallpaper panel: paste an Unsplash photo link; the collector downloads the photo and its author -->
-    <form class="wp-pop" id="wp-pop" hidden>
-      <label for="wp-url">Wallpaper from Unsplash</label>
-      <input id="wp-url" type="url" placeholder="https://unsplash.com/photos/…" autocomplete="off">
-      <label for="wp-location" class="wp-sub">Location <span>(optional)</span></label>
-      <div class="wp-row">
-        <input id="wp-location" type="text" placeholder="e.g. Vestrahorn, Iceland" maxlength="80" autocomplete="off">
-        <button type="submit" class="btn" id="wp-apply">Apply</button>
-      </div>
-      <p class="wp-hint">Paste the link of a photo page; the photo, its author and (with an Unsplash API key) its location are fetched automatically.
-        <a href="https://unsplash.com/wallpapers/desktop" target="_blank" rel="noopener">Browse wallpapers ↗</a></p>
-      <p class="wp-msg" id="wp-msg" hidden></p>
-      <button type="button" class="btn" id="wp-reset" hidden>Back to the config background</button>
-    </form>
     <div id="corner">
       <a class="corner-link" id="bg-credit" target="_blank" rel="noopener" hidden></a>
-      <button type="button" class="corner-link" id="wp-toggle" aria-expanded="false" aria-controls="wp-pop">Wallpaper</button>
+      <button type="button" id="settings-open" aria-haspopup="dialog" aria-label="Settings" data-hint="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
       <button type="button" id="theme-toggle"></button>
     </div>
   </div>
@@ -597,34 +732,56 @@ function markHtml(i) {
   return i.icon_dark ? light + `<img class="icon-dark" src="${esc(i.icon_dark)}" alt="" loading="lazy">` : light;
 }
 
-// Small hover/focus hints: any element with data-hint shows its text in the shared tooltip, just below it
+// Hover hints wait page.hint_delay ms (config) on every element, so they do not pop up while the mouse
+// just passes by; keyboard focus never waits; chart tooltips are not delayed.
+let hintDelay = 600, hintTimer = 0, hintPending = null;
+function hoverTip(target, show) {
+  if (target === hintPending || target === tipOwner) return;
+  clearTimeout(hintTimer);
+  if (tipOwner) hideTip();  // the previous hint goes away while the next one waits its turn
+  hintPending = target;
+  hintTimer = setTimeout(() => { hintPending = null; if (target.isConnected) show(target); }, hintDelay);
+}
+function leaveTip(target, related) {
+  if (target.contains(related)) return;
+  if (target === hintPending) { clearTimeout(hintTimer); hintPending = null; }
+  if (target === tipOwner) hideTip();
+}
+
+// Small hover/focus hints: any element with data-hint shows its text in the shared tooltip, just below it;
+// "\n" starts a new line, data-hint-title adds a muted heading (same look as the chart tooltips)
 function hintTip(target) {
   if (!target.dataset.hint) return;
+  if (target.getAttribute("aria-expanded") === "true") return;  // e.g. the quick links button while its panel is open
   const r = target.getBoundingClientRect(), pad = 14 * scale();
-  showTip(target, r.left - pad, r.bottom - pad + 4 * scale(), target.dataset.hint, []);
+  showTip(target, r.left - pad, r.bottom - pad + 4 * scale(), target.dataset.hintTitle || "",
+          target.dataset.hint.split("\n").map(text => ({ text })));
+  if (target.matches(".ql-toggle")) {  // icon button: centred under the icon
+    tip.classList.add("center");
+    const w = tip.offsetWidth;
+    tip.style.left = `${Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8)}px`;
+    tip.style.top = `${r.bottom + 6 * scale()}px`;
+  } else if (target.id === "clock") {  // right-aligned clock: hint under it, right edges aligned
+    tip.style.left = `${Math.max(8, r.right - tip.offsetWidth)}px`;
+    tip.style.top = `${r.bottom + 6 * scale()}px`;
+  }
 }
-document.addEventListener("pointerover", e => { const t = e.target.closest("[data-hint]"); if (t && t !== tipOwner) hintTip(t); });
-document.addEventListener("pointerout", e => {
-  const t = e.target.closest("[data-hint]");
-  if (t && t === tipOwner && !t.contains(e.relatedTarget)) hideTip();
-});
+document.addEventListener("pointerover", e => { const t = e.target.closest("[data-hint]"); if (t) hoverTip(t, hintTip); });
+document.addEventListener("pointerout", e => { const t = e.target.closest("[data-hint]"); if (t) leaveTip(t, e.relatedTarget); });
 document.addEventListener("focusin", e => { const t = e.target.closest("[data-hint]"); if (t) hintTip(t); });
 document.addEventListener("focusout", e => { if (tipOwner && tipOwner.dataset && "hint" in tipOwner.dataset) hideTip(); });
 
 // Tile tooltip: only the LAN address (no tooltip without one), shown below the tile on hover or keyboard focus
 function tileTip(tile) {
   const rows = [];
-  if (tile.dataset.addr) rows.push({ value: tile.dataset.addr, label: "" });
+  if (tile.dataset.addr) rows.push({ text: tile.dataset.addr });
   if (tile.dataset.down) rows.push({ value: tile.dataset.down, label: tile.dataset.reason || "" });
   if (!rows.length) return hideTip();
   const r = tile.getBoundingClientRect(), pad = 14 * scale();
   showTip(tile, r.left - pad, r.bottom - pad + 6 * scale(), "", rows);
 }
-root.addEventListener("pointerover", e => { const t = e.target.closest(".tile"); if (t && t !== tipOwner) tileTip(t); });
-root.addEventListener("pointerout", e => {
-  const t = e.target.closest(".tile");
-  if (t && t === tipOwner && !t.contains(e.relatedTarget)) hideTip();
-});
+root.addEventListener("pointerover", e => { const t = e.target.closest(".tile"); if (t) hoverTip(t, tileTip); });
+root.addEventListener("pointerout", e => { const t = e.target.closest(".tile"); if (t) leaveTip(t, e.relatedTarget); });
 root.addEventListener("focusin", e => { const t = e.target.closest(".tile"); if (t) tileTip(t); });
 root.addEventListener("focusout", () => { if (tipOwner && tipOwner.classList.contains("tile")) hideTip(); });
 
@@ -637,11 +794,17 @@ filterInput.addEventListener("keydown", e => {
   if (e.metaKey || e.ctrlKey) window.open(first.href, "_blank", "noopener");
   else location.href = first.href;
 });
-// "/" jumps to the filter unless the user is typing somewhere (e.g. the Google search box)
+// Keys while nothing is being typed into (the page has the focus on load, no field does):
+//   1-9  open quick link 1-9 in this tab;  "/"  jump to the services filter;
+//   a letter  starts a Google search with it;  Escape  clears the filter.
+// Cmd/Ctrl/Alt combinations stay with the browser (Cmd+1 switches tabs), and open windows keep their keys.
 document.addEventListener("keydown", e => {
   const typing = e.target.matches("input, textarea, select");
-  if (e.key === "/" && !typing) { e.preventDefault(); filterInput.focus(); }
   if (e.key === "Escape" && (e.target === filterInput || !typing)) { filterInput.value = ""; render(""); filterInput.blur(); }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey || document.querySelector("dialog[open]")) return;
+  if (e.key === "/") { e.preventDefault(); filterInput.focus(); return; }
+  if (/^[1-9]$/.test(e.key) && qlinks[e.key - 1]) { e.preventDefault(); location.href = qlinks[e.key - 1].url; return; }
+  if (e.key.length === 1 && /\p{L}/u.test(e.key)) document.getElementById("search-input").focus();  // the letter lands in the box
 });
 
 let bgSource = null, bgLocation = "";
@@ -678,6 +841,9 @@ const DEFAULT_FAVICON = document.getElementById("favicon").href;
 
 function applyPage(page) {
   document.title = page.tab_title;
+  hintDelay = page.hint_delay;
+  worldClock = page.world_clock || [];
+  renderWorldClock(new Date());
   const favicon = document.getElementById("favicon");
   favicon.href = page.favicon || DEFAULT_FAVICON;
   if (page.favicon) favicon.removeAttribute("type"); else favicon.type = "image/svg+xml";
@@ -764,7 +930,41 @@ function tick() {
   const d = new Date();
   document.getElementById("time").textContent = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   document.getElementById("date").textContent = d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+  renderWorldClock(d);
   showQuote();
+}
+
+// World clock (page.world_clock): time and date in other cities in the hint on the clock
+let worldClock = [];
+function zoneOffset(zone, d) {  // minutes east of UTC in `zone` at the moment d
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "numeric",
+    day: "numeric", hour: "numeric", minute: "numeric" }).formatToParts(d).map(x => [x.type, Number(x.value)]));
+  return Math.round((Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) - Math.floor(d / 60000) * 60000) / 60000);
+}
+function offsetLabel(min) {
+  if (!min) return "same time as here";
+  const h = Math.floor(Math.abs(min) / 60), m = Math.abs(min) % 60;
+  return `${min > 0 ? "+" : "−"}${h ? `${h} h` : ""}${h && m ? " " : ""}${m ? `${m} min` : ""}`;
+}
+function renderWorldClock(d) {
+  const clock = document.getElementById("clock");
+  if (!worldClock.length) { delete clock.dataset.hint; delete clock.dataset.hintTitle; clock.removeAttribute("tabindex"); return; }
+  const local = -d.getTimezoneOffset();
+  const lines = worldClock.map(c => {
+    try {
+      const time = d.toLocaleTimeString("en-GB", { timeZone: c.timezone, hour: "2-digit", minute: "2-digit" });
+      const date = d.toLocaleDateString("en-GB", { timeZone: c.timezone, weekday: "short", day: "numeric", month: "short" });
+      return { name: c.name, text: `${time} · ${date}`, diff: offsetLabel(zoneOffset(c.timezone, d) - local) };
+    } catch (e) {
+      return { name: c.name, text: `unknown time zone ${c.timezone}`, diff: "" };
+    }
+  });
+  // One city: its name and the difference as the heading; several: one line each
+  Object.assign(clock.dataset, lines.length === 1
+    ? { hintTitle: [lines[0].name, lines[0].diff].filter(Boolean).join(" · "), hint: lines[0].text }
+    : { hintTitle: "", hint: lines.map(l => `${l.name}: ${l.text}${l.diff ? ` (${l.diff})` : ""}`).join("\n") });
+  clock.tabIndex = 0;
+  if (tipOwner === clock) hintTip(clock);
 }
 tick(); setInterval(tick, 10000);
 
@@ -848,8 +1048,10 @@ function hideTip() { tip.hidden = true; tipOwner = null; }
 
 function showTip(owner, x, y, title, rows) {
   tipOwner = owner;
+  tip.classList.remove("center");
   tip.replaceChildren(...(title ? [el("div", "t", title)] : []));
   for (const r of rows) {
+    if (r.text != null) { tip.append(el("div", "l", r.text)); continue; }  // plain line of text
     const row = el("div", "r");
     if (r.key) row.append(el("i", "key " + r.key));
     row.append(el("strong", null, r.value), el("span", null, r.label));
@@ -1221,28 +1423,41 @@ function renderHealth(snap) {
 
 function dnsUpstreams(snap) {
   const ups = ((snap.sources.dns || {}).data || {}).upstreams || [];
-  return ups.length ? "DNS upstreams " + ups.map(u => `${u.name.replace(/:53$/, "")} ${u.avg_ms} ms`).join(", ") : null;
+  return ups.length ? ups.map(u => `${u.name.replace(/:53$/, "")} · ${u.avg_ms} ms`).join("\n") : null;
 }
 
+// Router state lives in the hint on "Live", the client count on the Devices button, DNS upstreams in the hint on the DNS title
 function renderRouter(snap) {
+  const updated = `updated ${new Date(snap.now * 1000).toLocaleTimeString("en-GB")}`;
   const r = source(snap, "router", snap.interval * 3).data;
-  if (!r) return;
-  const router = [
-    "Router",
+  const router = r ? [
     r.cpu_temp != null && `CPU ${r.cpu_temp} °C`,
     r.load && `load ${r.load[0].toFixed(2)}`,
     r.memory_used != null && `memory ${Math.round(r.memory_used * 100)} %`,
-    r.clients != null && `${r.clients} clients`,
     r.uptime != null && `up ${duration(r.uptime)}`,
-  ];
-  // "N clients" is a link to the device list
-  const parts = router.filter(Boolean), clientsText = r.clients != null ? `${r.clients} clients` : null;
-  $("rl-router").replaceChildren(...parts.flatMap((part, i) => {
-    const node = part === clientsText ? Object.assign(el("button", "link-btn", part), { type: "button", onclick: openDevices }) : part;
-    return i ? [" · ", node] : [node];
-  }));
-  $("rl-dns").textContent = dnsUpstreams(snap) || "";
-  $("rl-updated").textContent = `updated ${new Date(snap.now * 1000).toLocaleTimeString("en-GB")}`;
+  ].filter(Boolean).join(" · ") : "";
+  Object.assign($("live-state").dataset, router ? { hintTitle: `Router · ${updated}`, hint: router } : { hintTitle: "", hint: updated });
+  if (tipOwner === $("live-state")) hintTip(tipOwner);  // keep an open hint current
+  $("devices-n").textContent = r && r.clients != null ? r.clients : "";
+  const ups = dnsUpstreams(snap), title = $("dns-title");
+  if (ups) { Object.assign(title.dataset, { hintTitle: "DNS upstreams", hint: ups }); title.tabIndex = 0; }
+  else { delete title.dataset.hint; title.removeAttribute("tabindex"); }
+  if (tipOwner === title) hintTip(title);
+}
+
+const ALERT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4.5"/><path d="M12 17.4h.01"/></svg>';
+$("alert").insertAdjacentHTML("afterbegin", ALERT_ICON);
+// One pill updated in place (not re-created), so an open hint stays attached to it
+function renderAlerts(snap) {
+  const alerts = ((snap.sources.alerts || {}).data) || [], pill = $("alert");
+  pill.hidden = !alerts.length;
+  if (!alerts.length) { if (tipOwner === pill) hideTip(); return; }
+  pill.className = `alert ${alerts[0].level}`;
+  $("alert-text").textContent = alerts[0].text;
+  $("alert-more").textContent = alerts.length > 1 ? `+${alerts.length - 1}` : "";
+  pill.dataset.hintTitle = alerts.length > 1 ? `${alerts.length} alerts` : "";
+  pill.dataset.hint = alerts.map(a => `${a.level === "critical" ? "Critical" : "Warning"}: ${a.text}`).join("\n");
+  if (tipOwner === pill) hintTip(pill);
 }
 
 function setLiveState(status, text) {
@@ -1253,7 +1468,7 @@ function setLiveState(status, text) {
 let lastSnap = null;
 function renderLive(snap) {
   $("live").hidden = false;
-  for (const fn of [renderWan, renderQuality, renderSpeedtest, renderDns, renderRouter, renderHealth, renderTopDevices, renderDevices, renderVpn]) {
+  for (const fn of [renderWan, renderQuality, renderSpeedtest, renderDns, renderRouter, renderAlerts, renderHealth, renderTopDevices, renderDevices, renderVpn]) {
     try { fn(snap); } catch (e) { console.error(fn.name, e); }
   }
   const stale = [...document.querySelectorAll("[data-stale]")].some(e => !e.hidden);
@@ -1297,13 +1512,9 @@ $("wan-reconnect").addEventListener("click", async () => {
   refresh();
 });
 
-// --- Wallpaper panel: POST /api/background with an Unsplash photo link, or reset to the config background
-const wpPop = $("wp-pop"), wpToggle = $("wp-toggle"), wpMsg = $("wp-msg");
-function wpOpen(open) {
-  wpPop.hidden = !open;
-  wpToggle.setAttribute("aria-expanded", String(open));
-  if (open) { wpMsg.hidden = true; $("wp-location").value = bgLocation; $("wp-url").focus(); }
-}
+// --- Wallpaper (Settings): POST /api/background with an Unsplash photo link, or reset to the config background
+const wpMsg = $("wp-msg");
+function wpPrepare() { wpMsg.hidden = true; $("wp-url").value = ""; $("wp-location").value = bgLocation; }
 function wpMessage(text, error) { wpMsg.hidden = !text; wpMsg.textContent = text || ""; wpMsg.classList.toggle("error", Boolean(error)); }
 async function wpPost(body) {
   const resp = await fetch("api/background", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -1311,10 +1522,7 @@ async function wpPost(body) {
   if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
   return data;
 }
-wpToggle.addEventListener("click", () => wpOpen(wpPop.hidden));
-wpPop.addEventListener("keydown", e => { if (e.key === "Escape") { e.stopPropagation(); wpOpen(false); wpToggle.focus(); } });
-document.addEventListener("click", e => { if (!wpPop.hidden && !wpPop.contains(e.target) && e.target !== wpToggle) wpOpen(false); });
-wpPop.addEventListener("submit", async e => {
+$("wp-form").addEventListener("submit", async e => {
   e.preventDefault();
   const apply = $("wp-apply"), url = $("wp-url").value.trim();
   // With a new link, an untouched (pre-filled) location belongs to the old photo: let Unsplash supply the new one
@@ -1452,7 +1660,12 @@ function renderTopDevices(snap) {
 
 function renderDevices(snap) {
   if (!$("devices").open) return;
-  const list = (((snap.sources.clients || {}).data) || {}).devices || [];
+  const all = (((snap.sources.clients || {}).data) || {}).devices || [];
+  // Filter by name, IP or MAC (case-insensitive; MAC also without separators)
+  const q = $("devices-filter").value.trim().toLowerCase();
+  const matches = d => !q || d.name.toLowerCase().includes(q) || (d.ip || "").includes(q)
+    || d.mac.toLowerCase().includes(q) || d.mac.toLowerCase().replace(/[:-]/g, "").includes(q.replace(/[:-]/g, ""));
+  const list = all.filter(matches);
   const online = list.filter(d => d.online), offline = list.filter(d => !d.online);
   // dir 1 = ascending, -1 = descending ("Connected" sorts by -since: longest connected first when descending)
   online.sort((a, b) => {
@@ -1460,7 +1673,8 @@ function renderDevices(snap) {
     // ties (e.g. same connection type) keep a stable order by name
     return (x < y ? -1 : x > y ? 1 : 0) * devSort.dir || a.name.localeCompare(b.name);
   });
-  $("devices-count").textContent = `· ${online.length} online`;
+  const onlineTotal = all.filter(d => d.online).length;
+  $("devices-count").textContent = q ? `· ${list.length} of ${all.length} match` : `· ${onlineTotal} online`;
   const row = (d, live) => {
     const tr = el("tr");
     tr.title = `${d.mac}${d.class ? " · " + d.class : ""}`;
@@ -1473,10 +1687,13 @@ function renderDevices(snap) {
       el("td", "num", live && d.since ? duration(snap.now - d.since) : "–"));
     return tr;
   };
-  $("devices-online").replaceChildren(...online.map(d => row(d, true)));
+  const empty = () => { const tr = el("tr", "dev-empty"); const td = el("td", null, q ? "No online device matches" : "No devices online"); td.colSpan = 8; tr.append(td); return tr; };
+  $("devices-online").replaceChildren(...(online.length ? online.map(d => row(d, true)) : [empty()]));
   $("devices-offline").replaceChildren(...offline.map(d => row(d, false)));
   $("devices-offline-count").textContent = offline.length;
   $("devices-offline-box").hidden = !offline.length;
+  // while filtering, show matching offline devices without an extra click
+  if (q && offline.length) $("devices-offline-box").open = true;
   for (const b of document.querySelectorAll("#devices th button")) {
     if (b.dataset.sort === devSort.key) b.setAttribute("aria-sort", devSort.dir < 0 ? "descending" : "ascending");
     else b.removeAttribute("aria-sort");
@@ -1484,9 +1701,12 @@ function renderDevices(snap) {
 }
 
 function openDevices() {
+  $("devices-filter").value = "";
   $("devices").showModal();
+  $("devices-filter").focus();
   if (lastSnap) renderDevices(lastSnap);
 }
+$("devices-filter").addEventListener("input", () => { if (lastSnap) renderDevices(lastSnap); });
 for (const b of document.querySelectorAll("#devices th button")) {
   b.addEventListener("click", () => {
     const key = b.dataset.sort;
@@ -1624,18 +1844,66 @@ function renderHistory() {
     tr.append(el("td", null, dayLabel(d.day)), el("td", null, joinPair(byteSize(d.rx))), el("td", null, joinPair(byteSize(d.tx))));
     return tr;
   }));
-  // Events, newest first
+  // Events, newest first, filtered by type and text
   const events = data.events || [];
-  $("hist-events").replaceChildren(...(events.length ? events.map(e => {
+  const groups = EVENT_GROUPS.filter(g => !g.kinds || events.some(e => g.kinds.includes(e.kind)));
+  if (!groups.some(g => g.key === eventGroup)) eventGroup = "all";
+  $("hist-kinds").hidden = groups.length < 3;  // "All" plus a single type: nothing to choose
+  $("hist-kinds").replaceChildren(...groups.map(g => {
+    const b = el("button", null, g.label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(g.key === eventGroup));
+    b.append(el("span", "n", String(g.kinds ? events.filter(e => g.kinds.includes(e.kind)).length : events.length)));
+    b.addEventListener("click", () => { eventGroup = g.key; renderHistory(); });
+    return b;
+  }));
+  const group = groups.find(g => g.key === eventGroup);
+  const q = $("hist-filter").value.trim().toLowerCase();
+  $("hist-events-sum").textContent = events.length ? `${events.length} event${events.length === 1 ? "" : "s"} · latest ${when(events[0].t)}` : "none yet";
+  const shown = events.filter(e => (!group.kinds || group.kinds.includes(e.kind)) && (!q || e.text.toLowerCase().includes(q) || when(e.t).toLowerCase().includes(q)));
+  $("hist-events").replaceChildren(...(shown.length ? shown.map(e => {
     const li = el("li");
     const t = el("time", null, when(e.t)); t.dateTime = new Date(e.t * 1000).toISOString();
     li.append(t, el("span", null, e.text));
     return li;
-  }) : [el("li", "hist-empty", "No WAN events recorded yet.")]));
+  }) : [el("li", "hist-empty", events.length ? "No events match the filter." : "No events recorded yet.")]));
 }
+
+// Event kinds from the collector grouped for the filter buttons
+const EVENT_GROUPS = [
+  { key: "all", label: "All" },
+  { key: "wan", label: "WAN", kinds: ["down", "up", "reconnect"] },
+  { key: "ip", label: "Public IP", kinds: ["ip"] },
+  { key: "vpn", label: "VPN", kinds: ["vpn"] },
+  { key: "device", label: "Devices", kinds: ["device"] },
+];
+let eventGroup = "all";
+$("hist-filter").addEventListener("input", () => { if (historyData) renderHistory(); });
+
+// Sections work as an accordion: the window opens with Events unfolded, at most one section open
+let openSection = "events";
+function applyFolds() {
+  document.querySelectorAll("#history [data-fold]").forEach(sec => {
+    const open = sec.dataset.fold === openSection;
+    sec.classList.toggle("folded", !open);
+    sec.querySelector(".hist-fold").setAttribute("aria-expanded", String(open));
+  });
+}
+document.querySelectorAll("#history [data-fold] .hist-fold").forEach(btn => btn.addEventListener("click", () => {
+  const key = btn.closest("[data-fold]").dataset.fold;
+  openSection = openSection === key ? null : key;
+  applyFolds();
+  hideTip();
+  if (historyData && openSection) renderHistory();  // a chart drawn while hidden has no width: redraw on unfold
+}));
+applyFolds();
 
 async function openHistory() {
   const dialog = $("history");
+  $("hist-filter").value = "";
+  eventGroup = "all";
+  openSection = "events";
+  applyFolds();
   dialog.showModal();
   dialog.append(tip);  // the modal dialog sits in the top layer: keep the tooltip above it
   try {
@@ -1651,6 +1919,214 @@ $("history-open").addEventListener("click", openHistory);
 $("history-close").addEventListener("click", () => $("history").close());
 $("history").addEventListener("close", () => { hideTip(); document.body.append(tip); });
 $("history").addEventListener("click", e => { if (e.target === $("history")) $("history").close(); });  // click on the backdrop
+
+// ---------------------------------------------------------------------------
+// Quick links under the search box, edited in the "Quick links" window and saved by the collector
+// ---------------------------------------------------------------------------
+let qlinks = [], qlPoll = 0;
+const qlHost = url => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch (e) { return url; } };
+const qlName = l => l.name || l.title || qlHost(l.url);
+
+// Favicon from the collector's cache; the first letter of the name when there is none (or it fails to load)
+function qlIcon(link) {
+  const letter = () => { const s = el("span", "ql-ico ql-letter", qlName(link).trim().charAt(0) || "?"); s.setAttribute("aria-hidden", "true"); return s; };
+  if (!link.icon) return letter();
+  const img = el("img", "ql-ico");
+  img.src = `media/favicons/${link.icon}`; img.alt = ""; img.width = 16; img.height = 16;
+  img.addEventListener("error", () => img.replaceWith(letter()), { once: true });
+  img.addEventListener("load", () => { const tone = iconTone(img, link.icon); if (tone) img.classList.add(`tone-${tone}`); }, { once: true });
+  return img;
+}
+
+// "dark" for an icon drawn in near-black on a transparent background, "light" for near-white, else null.
+// Measured on the rendered pixels (favicons are same-origin, so the canvas can be read), so SVG icons
+// that switch colours with prefers-color-scheme are judged as they actually look. Cached per file.
+const iconTones = new Map();
+function iconTone(img, key) {
+  if (iconTones.has(key)) return iconTones.get(key);
+  let tone = null;
+  try {
+    const n = 24, c = document.createElement("canvas");
+    c.width = c.height = n;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(img, 0, 0, n, n);
+    const d = g.getImageData(0, 0, n, n).data;
+    let lum = 0, weight = 0, opaque = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const a = d[i + 3] / 255;
+      if (a < 0.1) continue;
+      if (a > 0.9) opaque++;
+      lum += a * (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+      weight += a;
+    }
+    // Icons that fill their square bring their own background: leave them alone
+    if (weight && opaque < n * n * 0.85) tone = lum / weight < 0.25 ? "dark" : lum / weight > 0.85 ? "light" : null;
+  } catch (e) { /* unreadable image: no plate */ }
+  iconTones.set(key, tone);
+  return tone;
+}
+
+function qlAnchor(link, i) {
+  const a = el("a", "ql-item");
+  a.href = link.url;
+  // Same parts as a service tile; hotkey 1-9 as a tiny digit in the top-right corner
+  const icon = el("span", "mark has-icon");
+  icon.setAttribute("aria-hidden", "true");
+  icon.append(qlIcon(link));
+  a.append(icon, el("span", "name", qlName(link)), el("span", "sub", link.url.replace(/^https?:\/\//, "").replace(/\/$/, "")));
+  if (i < 9) { const k = el("kbd", null, String(i + 1)); k.title = `Press ${i + 1} to open`; a.append(k); }
+  return a;
+}
+
+function renderQlinks() {
+  if (qlinks.length) { $("ql-grid").replaceChildren(...qlinks.map((l, i) => qlAnchor(l, i))); return; }
+  const empty = el("p", "ql-empty", "No quick links yet: add them in "), open = el("button", null, "Settings");
+  open.type = "button";
+  open.addEventListener("click", () => { qlPanel(false); openSettings(); });
+  empty.append(open, ".");
+  $("ql-grid").replaceChildren(empty);
+}
+
+// Panel: opens under the search box; closes on a click elsewhere or Escape
+function qlPanel(open, focusFirst) {
+  $("ql-panel").hidden = !open;
+  $("ql-toggle").setAttribute("aria-expanded", String(open));
+  if (open) hideTip();
+  if (open && focusFirst) { const first = $("ql-grid").querySelector("a, button"); if (first) first.focus(); }
+}
+$("ql-toggle").addEventListener("click", e => qlPanel($("ql-panel").hidden, e.detail === 0));  // keyboard: focus the first link
+document.addEventListener("click", e => { if (!$("ql-panel").hidden && !e.target.closest("#ql-panel, #ql-toggle")) qlPanel(false); });
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || $("ql-panel").hidden) return;
+  const inside = e.target.closest && e.target.closest("#ql-panel");
+  qlPanel(false);
+  if (inside) $("ql-toggle").focus();
+});
+
+async function loadQlinks() {
+  try {
+    const resp = await fetch("api/bookmarks", { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    setQlinks((await resp.json()).links || []);
+  } catch (e) { /* keep what is shown */ }
+}
+// Titles and icons of new links arrive a few seconds after saving: poll until they are in
+function setQlinks(list) {
+  const text = JSON.stringify(list);
+  if (text !== JSON.stringify(qlinks)) { qlinks = list; renderQlinks(); }
+  clearTimeout(qlPoll);
+  if (list.some(l => l.state === "pending")) qlPoll = setTimeout(loadQlinks, 2000);
+}
+loadQlinks();
+setInterval(() => { if (!$("settings").open) loadQlinks(); }, 60000);  // edits made in another browser
+
+// Editor: one row per link (grip, icon, name, URL, remove); Save sends the whole list in the order shown
+const ARROW = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+function qlRow(link) {
+  const li = el("li", "ql-row");
+  li.dataset.id = link.id || "";
+  const name = el("input", "ql-name"), url = el("input", "ql-url");
+  name.type = "text"; name.maxLength = 60; name.autocomplete = "off"; name.value = link.name || "";
+  name.placeholder = link.title || (link.url ? qlHost(link.url) : "Name (optional)");
+  name.setAttribute("aria-label", "Name");
+  url.type = "url"; url.autocomplete = "off"; url.value = link.url || ""; url.placeholder = "https://…";
+  url.setAttribute("aria-label", "Address");
+  url.addEventListener("input", () => url.removeAttribute("aria-invalid"));
+  const remove = el("button", "icon-btn ql-del");
+  remove.type = "button"; remove.setAttribute("aria-label", "Delete link"); remove.dataset.hint = "Delete";
+  remove.innerHTML = ARROW("M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3");  // trash can
+  remove.addEventListener("click", () => li.remove());
+  const grip = el("button", "ql-grip");
+  grip.type = "button"; grip.setAttribute("aria-label", "Drag to reorder (or use the up and down arrow keys)");
+  grip.innerHTML = '<svg viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="3" r="1.4"/><circle cx="8.5" cy="3" r="1.4"/><circle cx="3.5" cy="8" r="1.4"/><circle cx="8.5" cy="8" r="1.4"/><circle cx="3.5" cy="13" r="1.4"/><circle cx="8.5" cy="13" r="1.4"/></svg>';
+  qlDraggable(li, grip);
+  const num = el("span", "ql-num");
+  num.setAttribute("aria-hidden", "true");
+  li.append(grip, num, link.url ? qlIcon(link) : el("span", "ql-ico"), name, url, remove);
+  return li;
+}
+// Reorder by dragging the grip (mouse, pen or touch): the row moves past a neighbour once the
+// pointer crosses that neighbour's middle. Arrow keys on the focused grip do the same one step at a time.
+function qlDraggable(li, grip) {
+  grip.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    li.classList.add("dragging");
+    const list = $("ql-list"), dialog = $("settings");
+    const move = ev => {
+      const box = dialog.getBoundingClientRect();  // scroll the window when dragging near its edges
+      if (ev.clientY < box.top + 64) dialog.scrollBy(0, -12); else if (ev.clientY > box.bottom - 48) dialog.scrollBy(0, 12);
+      const next = [...list.children].find(r => r !== li && ev.clientY < r.getBoundingClientRect().top + r.offsetHeight / 2);
+      if (next ? li.nextElementSibling !== next : list.lastElementChild !== li) { next ? next.before(li) : list.append(li); grip.focus(); }
+    };
+    // Listen on the document: moving the row in the DOM would drop a pointer capture on the grip
+    const end = () => {
+      li.classList.remove("dragging");
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", end);
+      document.removeEventListener("pointercancel", end);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", end);
+    document.addEventListener("pointercancel", end);
+  });
+  grip.addEventListener("keydown", e => {
+    const target = e.key === "ArrowUp" ? li.previousElementSibling : e.key === "ArrowDown" ? li.nextElementSibling : null;
+    if (!target) return;
+    e.preventDefault();
+    e.key === "ArrowUp" ? target.before(li) : target.after(li);
+    grip.focus();
+  });
+}
+function qlRows() {
+  $("ql-list").replaceChildren(...qlinks.map(qlRow));
+  if (!qlinks.length) $("ql-list").append(qlRow({}));
+}
+// Settings window (gear in the bottom-right corner): quick links + wallpaper
+function openSettings() {
+  qlRows();
+  $("ql-msg").hidden = true;
+  wpPrepare();
+  $("settings").showModal();
+  $("settings").append(tip);  // the modal dialog sits in the top layer: keep the tooltip above it
+  $("settings-close").focus();
+}
+$("settings-open").addEventListener("click", openSettings);
+$("ql-add").addEventListener("click", () => { const row = qlRow({}); $("ql-list").append(row); row.querySelector(".ql-url").focus(); });
+$("ql-cancel").addEventListener("click", () => { qlRows(); $("ql-msg").hidden = true; });  // back to the saved list
+$("settings-close").addEventListener("click", () => $("settings").close());
+$("settings").addEventListener("close", () => { hideTip(); document.body.append(tip); });
+$("settings").addEventListener("click", e => { if (e.target === $("settings")) $("settings").close(); });  // click on the backdrop
+$("ql-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const msg = $("ql-msg"), links = [];
+  let bad = null;
+  for (const row of $("ql-list").children) {
+    const input = row.querySelector(".ql-url"), name = row.querySelector(".ql-name").value.trim();
+    let url = input.value.trim();
+    if (!url) continue;  // an empty row is just dropped
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = `https://${url}`;  // "github.com" is enough
+    let ok = false;
+    try { ok = ["http:", "https:"].includes(new URL(url).protocol); } catch (err) {}
+    if (!ok) { input.setAttribute("aria-invalid", "true"); bad = bad || input; continue; }
+    input.value = url;
+    links.push({ id: row.dataset.id || undefined, url, name });
+  }
+  if (bad) { msg.hidden = false; msg.className = "wp-msg error"; msg.textContent = "Fix the highlighted address: only http:// and https:// links."; bad.focus(); return; }
+  $("ql-save").disabled = true;
+  try {
+    const resp = await fetch("api/bookmarks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ links }) });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    setQlinks(data.links || []);
+    qlRows();  // new rows get their ids, so saving again does not re-fetch their titles and icons
+    msg.hidden = false; msg.className = "wp-msg"; msg.textContent = "Saved.";
+  } catch (err) {
+    msg.hidden = false; msg.className = "wp-msg error"; msg.textContent = `Not saved: ${err.message}`;
+  } finally {
+    $("ql-save").disabled = false;
+  }
+});
 
 // Re-lay out charts on resize using the cached snapshot
 let resizeTimer;
