@@ -202,6 +202,18 @@ Open **Settings** (gear in the bottom-right corner) and add links; the address a
 long) and favicon, caches the icon in `/app/data/favicons` and retries a page it could not read after 6 hours.
 A typed name always wins over the page title. The list is stored in `/app/data/bookmarks.json`.
 
+### As the browser's new tab page
+
+Chrome puts the focus in the address bar when an extension replaces the new tab page, so keys typed right away
+(1-9, type-to-search) go there instead of the page. [Custom New Tab](https://chrome.google.com/webstore/detail/custom-new-tab/lfjnnkckddkopjfgmbcpdiolnmfobflj)
+can hand the focus to the page:
+
+1. Install it and set its URL to your dashboard, e.g. `http://<docker-host>:3100`.
+2. Uncheck **Focus on the address bar on the new tab page**.
+
+A new tab then opens the dashboard with the page focused, so *new tab → 1* opens the first quick link. Being a Web Store
+extension, it also syncs to your other computers with Chrome sync.
+
 ### Wallpaper from the page
 
 Open **Settings** (gear in the bottom-right corner) and paste the link of an Unsplash photo page
