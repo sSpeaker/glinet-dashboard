@@ -225,7 +225,7 @@ Open **Settings** (gear in the bottom-right corner).
 - **Buttons:** ‹ goes back through the last 30 photos, › shows the next one (already downloaded, so it appears at once), and the crossed-out eye never shows this photo again. They sit next to the photo credit while a collection rotates.
 - **Which photos:** landscape and free photos only; random order does not repeat a photo until the collection is used up.
 - **Runs on the server:** the collector changes the photo on schedule, so every browser shows the same one, and carries on after a restart. *Stop rotating, keep this photo* ends it.
-- **Needs** `UNSPLASH_ACCESS_KEY` (below): Unsplash lists collections only through its API. A new photo costs about two of the 50 hourly API requests.
+- **Needs** `UNSPLASH_ACCESS_KEY` (below): Unsplash lists collections only through its API. Of the 50 hourly API requests, a new photo costs one in random order (photos come 30 per request; the one per photo is the download count Unsplash asks apps to send for the photographer) and about two in collection order; ‹ and › through the history cost nothing.
 - **State:** `/app/data/rotation.json` (history, hidden photos), photos in `/app/data/wallpapers`.
 
 **A single photo:** paste the link of an Unsplash photo page
@@ -279,7 +279,7 @@ The page is a single static HTML file served by the same process.
 | Alerts | computed by the collector after every poll from the sources above, the history and `alerts:` in the config |
 | Quick links | the page itself (`og:site_name` / `<title>`, `<link rel="icon">`, else `/favicon.ico`), read once by the collector |
 | Wallpaper from the page | Unsplash download link (author from its file name) or, with `UNSPLASH_ACCESS_KEY`, the Unsplash API (author and location); stored in `/app/data/wallpapers` |
-| Collection rotation | Unsplash API: `/photos/random?collections=` (random order) or `/collections/{id}/photos` (collection order), downloads counted for the photographer as Unsplash asks |
+| Collection rotation | Unsplash API: `/photos/random?collections=&count=30` (random order, 30 photos per request) or `/collections/{id}/photos` (collection order), downloads counted for the photographer as Unsplash asks |
 
 Endpoints: `GET /api/status`, `GET /api/config`, `GET /api/quote`, `GET /assets/…` (images from the config folder),
 `POST /api/speedtest` with `{"enable": true|false}`, `POST /api/wan/reconnect` with `{}`,

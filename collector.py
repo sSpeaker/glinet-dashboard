@@ -1594,9 +1594,9 @@ class Unsplash:
             raise RuntimeError(f"Unsplash API: HTTP {exc.code} {body.strip()[:120]}") from None
 
     @staticmethod
-    def track(photo):
-        """Counts a download for the photographer, as the Unsplash API guidelines ask; failures do not matter."""
-        url = (photo.get("links") or {}).get("download_location")
+    def track(url):
+        """Counts a download for the photographer (the photo's download_location), as the Unsplash API
+        guidelines ask; failures do not matter."""
         if url and Unsplash.key():
             try:
                 urlopen(Request(url, headers={"Authorization": f"Client-ID {Unsplash.key()}", "User-Agent": Wallpaper.UA}), timeout=10).close()
@@ -1620,9 +1620,10 @@ def photo_place(photo):
 class WallpaperRotation:
     """The page wallpaper taken in turn from an Unsplash collection (Settings → Wallpaper).
 
-    Random order uses /photos/random?collections= (one request per photo, landscape only, no repeats until
-    the collection is used up); collection order pages through /collections/{id}/photos and skips portrait,
-    paid and hidden photos. Every photo shown is kept in a short history for the ‹ button, the next one is
+    Random order takes 30 random landscape photos per request (/photos/random?collections=&count=30) and
+    uses them one by one, with no repeats until the collection is used up; collection order pages through
+    /collections/{id}/photos and skips portrait, paid and hidden photos. Each photo shown once costs one more
+    request: the download count for the photographer that the Unsplash API guidelines ask for. Every photo shown is kept in a short history for the ‹ button, the next one is
     downloaded ahead so › is instant, and "hide" adds a photo to a list that is never shown again.
     State in data/rotation.json; the photos themselves go through Wallpaper (data/wallpapers/).
     """
@@ -1696,12 +1697,16 @@ class WallpaperRotation:
         if not info.get("total_photos"):
             raise ValueError("this collection has no photos")
         with self._lock:
-            self.state.update(active=True, order=order, minutes=minutes, history=[], pos=0, upcoming=None, cursor=0, seen=[],
+            self.state.update(active=True, order=order, minutes=minutes, history=[], pos=0, upcoming=None, cursor=0, seen=[], batch=[],
                               collection={"id": cid, "title": str(info.get("title") or cid)[:80], "total": int(info["total_photos"]),
                                           "url": (info.get("links") or {}).get("html") or f"https://unsplash.com/collections/{cid}"})
             self._page = (None, [])
         LOG.info("wallpaper rotation: collection %s (%s photos), %s, every %s min", cid, info["total_photos"], order, minutes or "-")
-        return self.step("next")
+        try:
+            return self.step("next")
+        except Exception:
+            self.stop()  # the first photo did not come: no half-started rotation
+            raise
 
     def step(self, action):
         """next / prev / hide; returns the new status. One at a time: a second click while busy is refused."""
@@ -1733,6 +1738,8 @@ class WallpaperRotation:
                 if not entry or entry["id"] in self.state["hidden"]:
                     entry = self._pick()
             self.wp.show(entry, self.keep_files() | {f"{entry['id']}.jpg"})
+            if new:  # shown for the first time: count the download for the photographer
+                Unsplash.track(entry.get("track"))
             with self._lock:
                 if new:
                     history.append(entry)
@@ -1764,16 +1771,31 @@ class WallpaperRotation:
             skip = set(s["hidden"]) | set(s.get("seen", [])) | {e["id"] for e in s.get("history", [])[-5:]}
         cid, total = s["collection"]["id"], s["collection"]["total"]
         if s["order"] == "random":
-            for _ in range(4):
-                photo, _ = Unsplash.get("/photos/random", collections=cid, orientation="landscape")
-                if self._usable(photo, skip):
-                    break
-            else:  # everything recent was seen: start the round again
+            entry = None
+            for attempt in range(3):
                 with self._lock:
-                    self.state["seen"] = []
-                if photo.get("id") in s["hidden"]:
-                    raise RuntimeError("Unsplash keeps returning hidden photos, try again")
-            entry = self._entry(photo)
+                    batch = self.state.get("batch") or []
+                    while batch and not entry:
+                        candidate = batch.pop(0)
+                        if candidate["id"] not in skip:
+                            entry = candidate
+                    self.state["batch"] = batch
+                if entry:
+                    break
+                if attempt == 2:  # three batches of photos already seen: start the round again
+                    with self._lock:
+                        self.state["seen"] = []
+                    skip = set(s["hidden"])
+                photos, _ = Unsplash.get("/photos/random", collections=cid, orientation="landscape", count=30)
+                fresh = [self._entry(p) for p in photos if self._usable(p, set(s["hidden"]))]
+                with self._lock:
+                    self.state["batch"] = fresh
+            if not entry:
+                with self._lock:
+                    batch = self.state.get("batch") or []
+                    entry = batch.pop(0) if batch else None
+                if not entry:
+                    raise RuntimeError("Unsplash returned no usable photo from this collection")
         else:
             for _ in range(total + 31):
                 with self._lock:
@@ -1794,7 +1816,6 @@ class WallpaperRotation:
                 raise RuntimeError("no landscape photo found in this collection")
             photo, _ = Unsplash.get(f"/photos/{items[idx]['id']}")   # the list has no location
             entry = self._entry(photo)
-        Unsplash.track(photo)
         with self._lock:
             self.state["seen"] = (self.state.get("seen", []) + [entry["id"]])[-max(10, min(total - 1, 500)):]
         return entry
