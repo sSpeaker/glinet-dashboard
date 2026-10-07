@@ -77,9 +77,27 @@ body.bg-light :is(header .brand, header .clock, .section-head h2, .group h3, #em
 }
 body:is(.bg-dark, .bg-light) footer q { color: var(--fg); }
 /* Over a photo the quote sits on a small frosted strip, so it stays readable even on snow or sky */
-body:is(.bg-dark, .bg-light) footer { backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-body.bg-dark footer { background: rgb(13 18 32 / 0.55); }
-body.bg-light footer { background: rgb(238 241 246 / 0.6); }
+/* The photo credit and its buttons (bottom-right) get the same strip: mostly blur, only a light tint */
+/* The blur sits on a pseudo-element a bit larger than the strip, masked to fade out towards every edge:
+   no visible border, and the text itself is not masked */
+body:is(.bg-dark, .bg-light) :is(footer, #corner) { position: relative; isolation: isolate; }
+body:is(.bg-dark, .bg-light) :is(footer, #corner)::before {
+  content: ""; position: absolute; inset: -0.625rem -1.25rem; z-index: -1; pointer-events: none;
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.75rem, #000 calc(100% - 1.75rem), transparent),
+                      linear-gradient(transparent, #000 0.875rem, #000 calc(100% - 0.875rem), transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 1.75rem, #000 calc(100% - 1.75rem), transparent),
+              linear-gradient(transparent, #000 0.875rem, #000 calc(100% - 0.875rem), transparent);
+  mask-composite: intersect;
+}
+body.bg-dark :is(footer, #corner)::before { background: rgb(13 18 32 / 0.08); }
+body.bg-light :is(footer, #corner)::before { background: rgb(238 241 246 / 0.08); }
+body:is(.bg-dark, .bg-light) #corner { padding: 0.125rem 0.375rem 0.125rem 0.75rem; border-radius: 0.5rem; }
+/* On the strip the corner links and buttons can be less faint and still stay quiet */
+body:is(.bg-dark, .bg-light) #corner :is(.corner-link, .corner-sep, .corner-icon:not(:disabled), #settings-open, #theme-toggle) { opacity: 0.7; }
+body:is(.bg-dark, .bg-light) #corner :is(.corner-link, .corner-icon, #settings-open, #theme-toggle):is(:hover, :focus-visible) { opacity: 1; }
+body:is(.bg-dark, .bg-light) #corner .corner-icon:disabled { opacity: 0.25; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .wrap { flex: 1 0 auto; width: 100%; max-width: 80rem; margin: 0 auto; padding: 1.25rem 1.25rem 1rem; display: grid; gap: 1.125rem; align-content: start; }
 .bottom-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1.5rem; padding: 0 0.75rem 0.75rem; }
@@ -149,8 +167,11 @@ section h2::after { content: ""; flex: 1; height: 1px; background: var(--line); 
 /* Quote: pinned to the bottom-left corner, level with the photo credit in the bottom-right one */
 footer { flex: 0 1 auto; min-width: 0; margin: 0; padding: 0.35rem 0.75rem; border-radius: 0.5rem; color: var(--muted); font-size: 0.8125rem; line-height: 1.3; }
 footer q { font-style: italic; }
-footer .author { margin-left: 0.5rem; white-space: nowrap; }
-footer .author:not(:empty)::before { content: "— "; }
+/* The dash stays outside the link: only the name is underlined and clickable */
+footer .by { margin-left: 0.5rem; white-space: nowrap; }
+footer .by:has(.author:empty) { display: none; }
+footer .author { color: inherit; text-decoration: none; }
+footer .author[href]:hover { color: var(--accent); text-decoration: underline; }
 footer .source { margin-left: 0.75rem; color: var(--muted); font-size: 0.6875rem; text-decoration: none; opacity: 0.8; }
 footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 
@@ -337,21 +358,31 @@ details th { color: var(--muted); font-weight: 500; }
 /* Bottom-right corner: photo credit, wallpaper link and theme switch; faint until hovered/focused */
 .corner-wrap { position: relative; margin-left: auto; min-width: 0; }
 #corner { display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; min-width: 0; }
-#bg-credit { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.bg-credit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corner-sep { font-size: 0.6875rem; color: var(--muted); opacity: 0.35; }
+.bg-nav { display: flex; align-items: center; gap: 0.125rem; }
+.corner-msg { font-size: 0.6875rem; color: var(--critical); white-space: nowrap; }
+.corner-icon:disabled { opacity: 0.12; cursor: default; }
+.bg-nav.busy .corner-icon { opacity: 0.12; }
 .corner-link { font: 0.6875rem var(--body); color: var(--muted); text-decoration: none; opacity: 0.35; transition: opacity .15s; white-space: nowrap; background: none; border: 0; padding: 0; cursor: pointer; }
 .corner-link[aria-expanded="true"] { opacity: 1; }
 .corner-link:hover, .corner-link:focus-visible { opacity: 1; text-decoration: underline; }
 .corner-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
-#theme-toggle, #settings-open { width: 1.75rem; height: 1.75rem; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); opacity: 0.35; cursor: pointer; transition: opacity .15s; }
-#theme-toggle:hover, #theme-toggle:focus-visible, #settings-open:hover, #settings-open:focus-visible { opacity: 1; }
-#theme-toggle:focus-visible, #settings-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-#theme-toggle svg, #settings-open svg { width: 1rem; height: 1rem; }
+#theme-toggle, #settings-open, .corner-icon { width: 1.75rem; height: 1.75rem; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); opacity: 0.35; cursor: pointer; transition: opacity .15s; }
+#theme-toggle:hover, #theme-toggle:focus-visible, #settings-open:hover, #settings-open:focus-visible, .corner-icon:hover:not(:disabled), .corner-icon:focus-visible { opacity: 1; }
+#theme-toggle:focus-visible, #settings-open:focus-visible, .corner-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#theme-toggle svg, #settings-open svg, .corner-icon svg { width: 1rem; height: 1rem; }
+.corner-icon { width: 1.5rem; }
 .wp-form { font-size: 0.8125rem; }
 .wp-form label { font-weight: 600; }
 .wp-row { display: flex; gap: 0.5rem; }
 .wp-form .wp-sub { font-weight: 500; color: var(--muted); }
 .wp-form .wp-sub span { font-weight: 400; }
 .wp-form input { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: var(--chip); border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.3125rem 0.5rem; outline: none; }
+.wp-form select { font: inherit; color: var(--fg); background: var(--chip); border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.3125rem 0.5rem; }
+.wp-form .spacer { flex: 1; }
+.wp-form code { font: 0.6875rem var(--mono); }
+.wp-form + .wp-form { margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--line); }
 .wp-form input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .wp-hint, .wp-msg { margin: 0; color: var(--muted); font-size: 0.75rem; }
 .wp-hint a { color: var(--accent); }
@@ -622,9 +653,29 @@ details th { color: var(--muted); font-weight: 500; }
       </form>
     </section>
     <section class="hist-block" aria-labelledby="set-wallpaper-title">
-      <div class="hist-title"><h3 id="set-wallpaper-title">Wallpaper</h3><span class="muted">a photo from Unsplash instead of the config background</span></div>
+      <div class="hist-title"><h3 id="set-wallpaper-title">Wallpaper</h3><span class="muted" id="wp-now"></span></div>
+      <form class="set-form wp-form" id="wp-col-form">
+        <label for="wp-collection">Rotate an Unsplash collection</label>
+        <input id="wp-collection" type="url" placeholder="https://unsplash.com/collections/…" autocomplete="off">
+        <div class="wp-row">
+          <select id="wp-order" aria-label="Order">
+            <option value="random">Random order</option>
+            <option value="order">Collection order</option>
+          </select>
+          <select id="wp-minutes" aria-label="Change every">
+            <option value="15">Every 15 minutes</option><option value="30">Every 30 minutes</option>
+            <option value="60" selected>Every hour</option><option value="180">Every 3 hours</option>
+            <option value="360">Every 6 hours</option><option value="720">Every 12 hours</option>
+            <option value="1440">Once a day</option><option value="0">Only with the buttons</option>
+          </select>
+          <span class="spacer"></span>
+          <button type="submit" class="btn primary" id="wp-start">Start</button>
+        </div>
+        <p class="wp-hint">Landscape photos only. ‹ › and “don't show again” sit next to the photo credit in the bottom-right corner.
+          Needs an Unsplash API key (<code>UNSPLASH_ACCESS_KEY</code>). <a href="https://unsplash.com/collections" target="_blank" rel="noopener">Browse collections ↗</a></p>
+      </form>
       <form class="set-form wp-form" id="wp-form">
-        <label for="wp-url">Unsplash photo link</label>
+        <label for="wp-url">Or a single Unsplash photo</label>
         <input id="wp-url" type="url" placeholder="https://unsplash.com/photos/…" autocomplete="off">
         <label for="wp-location" class="wp-sub">Location <span>(optional)</span></label>
         <div class="wp-row">
@@ -633,9 +684,12 @@ details th { color: var(--muted); font-weight: 500; }
         </div>
         <p class="wp-hint">Paste the link of a photo page; the photo, its author and (with an Unsplash API key) its location are fetched automatically.
           <a href="https://unsplash.com/wallpapers/desktop" target="_blank" rel="noopener">Browse wallpapers ↗</a></p>
-        <p class="wp-msg" id="wp-msg" role="status" hidden></p>
-        <button type="button" class="btn" id="wp-reset" hidden>Back to the config background</button>
       </form>
+      <p class="wp-msg" id="wp-msg" role="status" hidden></p>
+      <div class="set-actions">
+        <button type="button" class="btn" id="wp-stop" hidden>Stop rotating, keep this photo</button>
+        <button type="button" class="btn" id="wp-reset" hidden>Back to the config background</button>
+      </div>
     </section>
   </div>
 </dialog>
@@ -687,10 +741,16 @@ details th { color: var(--muted); font-weight: 500; }
   </div>
 </dialog>
 <div class="bottom-bar">
-  <footer id="footer" hidden><q id="quote-text"></q><span class="author" id="quote-author"></span><a class="source" id="quote-source" target="_blank" rel="noopener"></a></footer>
+  <footer id="footer" hidden><q id="quote-text"></q><span class="by">— <a class="author" id="quote-author" target="_blank" rel="noopener"></a></span><a class="source" id="quote-source" target="_blank" rel="noopener"></a></footer>
   <div class="corner-wrap">
     <div id="corner">
-      <a class="corner-link" id="bg-credit" target="_blank" rel="noopener" hidden></a>
+      <span class="corner-msg" id="bg-msg" role="status" hidden></span>
+      <span class="bg-credit" id="bg-credit" hidden><a class="corner-link" id="bg-author" target="_blank" rel="noopener"></a><span class="corner-sep" id="bg-sep" aria-hidden="true"> · </span><a class="corner-link" id="bg-place" target="_blank" rel="noopener" data-hint="Open in Google Maps"></a></span>
+      <span class="bg-nav" id="bg-nav" hidden>
+        <button type="button" class="corner-icon" id="bg-prev" aria-label="Previous photo" data-hint="Previous photo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+        <button type="button" class="corner-icon" id="bg-next" aria-label="Next photo" data-hint="Next photo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+        <button type="button" class="corner-icon" id="bg-hide" aria-label="Don't show this photo again" data-hint="Don't show this photo again"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A10.4 10.4 0 0 1 12 5c5 0 8.5 4.3 9.6 6.2a1.6 1.6 0 0 1 0 1.6 17 17 0 0 1-2.9 3.6M6.6 6.6A16.6 16.6 0 0 0 2.4 11.2a1.6 1.6 0 0 0 0 1.6C3.5 14.7 7 19 12 19a9.8 9.8 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>
+      </span>
       <button type="button" id="settings-open" aria-haspopup="dialog" aria-label="Settings" data-hint="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
       <button type="button" id="theme-toggle"></button>
     </div>
@@ -807,7 +867,7 @@ document.addEventListener("keydown", e => {
   if (e.key.length === 1 && /\p{L}/u.test(e.key)) document.getElementById("search-input").focus();  // the letter lands in the box
 });
 
-let bgSource = null, bgLocation = "";
+let bgSource = null, bgLocation = "", bgRotation = null;
 
 // Theme: auto (follows the system) / light / dark. The switch stores a per-browser choice;
 // without one, page.theme from the config applies.
@@ -859,7 +919,12 @@ function applyPage(page) {
   const backdrop = document.getElementById("backdrop"), bg = page.background;
   backdrop.hidden = !bg;
   if (bg) {
-    backdrop.style.backgroundImage = `url(${JSON.stringify(bg.image)})`;
+    if (backdrop.dataset.src !== bg.image) {  // swap only once the new photo is loaded
+      const src = bg.image, img = new Image();
+      backdrop.dataset.src = src;
+      img.onload = img.onerror = () => { if (backdrop.dataset.src === src) backdrop.style.backgroundImage = `url(${JSON.stringify(src)})`; };
+      img.src = src;
+    }
     // cover: keep proportions and crop; contain: whole image with bars; fill: stretch to the window exactly
     backdrop.style.backgroundSize = { cover: "cover", contain: "contain", fill: "100% 100%" }[bg.fit] || "cover";
     backdrop.style.setProperty("--shade", bg.shade);
@@ -867,12 +932,22 @@ function applyPage(page) {
     backdrop.style.inset = bg.blur ? `${-2 * bg.blur}px` : "0";  // keep blurred edges off-screen
   }
   bgSource = bg ? bg.source : null;
-  document.getElementById("wp-reset").hidden = bgSource !== "page";
-  const credit = document.getElementById("bg-credit");
+  // Credit: "Photo: author" links to the photo, the location opens Google Maps (coordinates when Unsplash has them)
   bgLocation = (bg && bg.location) || "";
-  credit.hidden = !(bg && (bg.credit || bg.location));
-  credit.textContent = bg ? [`Photo${bg.credit ? `: ${bg.credit}` : ""}`, bg.location].filter(Boolean).join(" · ") : "";
-  if (bg && /^https:\/\//.test(bg.credit_url)) credit.href = bg.credit_url; else credit.removeAttribute("href");
+  bgRotation = (bg && bg.rotation) || null;
+  const author = $("bg-author"), place = $("bg-place");
+  $("bg-credit").hidden = !(bg && (bg.credit || bg.location));
+  author.textContent = bg ? `Photo${bg.credit ? `: ${bg.credit}` : ""}` : "";
+  author.hidden = !(bg && (bg.credit || !bg.location));
+  if (bg && /^https:\/\//.test(bg.credit_url)) author.href = bg.credit_url; else author.removeAttribute("href");
+  place.textContent = bgLocation;
+  place.hidden = $("bg-sep").hidden = !bgLocation;
+  if (bg && !bg.credit) $("bg-sep").hidden = true;
+  const query = bg && bg.position ? bg.position.join(",") : bgLocation;
+  place.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  $("bg-nav").hidden = !bgRotation;
+  $("bg-prev").disabled = !(bgRotation && bgRotation.can_back);
+  wpStatus();
   imageTone(bg, tone => {
     document.body.classList.toggle("bg-dark", tone === "dark");
     document.body.classList.toggle("bg-light", tone === "light");
@@ -913,7 +988,12 @@ async function loadQuote() {
     footer.hidden = !quote;
     if (!quote) return;
     document.getElementById("quote-text").textContent = quote.text;
-    document.getElementById("quote-author").textContent = quote.author;
+    const author = document.getElementById("quote-author");
+    author.textContent = quote.author;
+    if (quote.author && !/^(unknown|anonymous)$/i.test(quote.author.trim())) {
+      author.href = `https://en.wikipedia.org/wiki/Special:Search?go=Go&search=${encodeURIComponent(quote.author)}`;
+      author.dataset.hint = "Look up on Wikipedia";
+    } else { author.removeAttribute("href"); delete author.dataset.hint; }
     const source = document.getElementById("quote-source");
     source.textContent = `via ${quote.source}`;
     if (/^https:\/\//.test(quote.link)) source.href = quote.link; else source.removeAttribute("href");
@@ -1514,7 +1594,21 @@ $("wan-reconnect").addEventListener("click", async () => {
 
 // --- Wallpaper (Settings): POST /api/background with an Unsplash photo link, or reset to the config background
 const wpMsg = $("wp-msg");
-function wpPrepare() { wpMsg.hidden = true; $("wp-url").value = ""; $("wp-location").value = bgLocation; }
+const MINUTE_LABELS = { 0: "only with the buttons", 15: "every 15 minutes", 30: "every 30 minutes", 60: "every hour",
+  180: "every 3 hours", 360: "every 6 hours", 720: "every 12 hours", 1440: "once a day" };
+function wpStatus() {
+  $("wp-now").textContent = bgRotation
+    ? `now: “${bgRotation.title}”, ${bgRotation.order === "random" ? "random" : "in order"}, ${MINUTE_LABELS[bgRotation.minutes] || ""}`
+    : bgSource === "page" ? "now: a single Unsplash photo" : bgSource === "config" ? "now: the config background" : "";
+  $("wp-stop").hidden = !bgRotation;
+  $("wp-reset").hidden = bgSource !== "page";
+}
+function wpPrepare() {
+  wpMsg.hidden = true; $("wp-url").value = ""; $("wp-location").value = bgLocation;
+  $("wp-collection").value = bgRotation ? bgRotation.url : "";
+  if (bgRotation) { $("wp-order").value = bgRotation.order; $("wp-minutes").value = String(bgRotation.minutes); }
+  wpStatus();
+}
 function wpMessage(text, error) { wpMsg.hidden = !text; wpMsg.textContent = text || ""; wpMsg.classList.toggle("error", Boolean(error)); }
 async function wpPost(body) {
   const resp = await fetch("api/background", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -1542,6 +1636,47 @@ $("wp-form").addEventListener("submit", async e => {
     apply.disabled = false; apply.textContent = "Apply";
   }
 });
+$("wp-col-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const url = $("wp-collection").value.trim(), start = $("wp-start");
+  if (!url) { wpMessage("Paste the link of an Unsplash collection.", true); return; }
+  start.disabled = true; start.textContent = "…";
+  wpMessage("Loading the collection and its first photo…");
+  try {
+    const { rotation } = await wpPost({ collection: url, order: $("wp-order").value, minutes: Number($("wp-minutes").value) });
+    wpMessage(`Rotating “${rotation.title}” (${rotation.total} photos).`);
+    await loadConfig();
+  } catch (err) {
+    wpMessage(err.message, true);
+  } finally {
+    start.disabled = false; start.textContent = "Start";
+  }
+});
+$("wp-stop").addEventListener("click", async () => {
+  try { await wpPost({ stop_rotation: true }); wpMessage("Stopped: this photo stays."); await loadConfig(); }
+  catch (err) { wpMessage(err.message, true); }
+});
+// Corner buttons: previous / next / never show this photo again
+let bgMsgTimer;
+async function bgStep(action) {
+  const nav = $("bg-nav");
+  if (nav.classList.contains("busy")) return;
+  nav.classList.add("busy");
+  hideTip();
+  try {
+    await wpPost({ rotate: action });
+    await loadConfig();
+  } catch (err) {
+    const msg = $("bg-msg");
+    msg.textContent = err.message; msg.hidden = false;
+    clearTimeout(bgMsgTimer); bgMsgTimer = setTimeout(() => { msg.hidden = true; }, 6000);
+  } finally {
+    nav.classList.remove("busy");
+  }
+}
+$("bg-prev").addEventListener("click", () => bgStep("prev"));
+$("bg-next").addEventListener("click", () => bgStep("next"));
+$("bg-hide").addEventListener("click", () => bgStep("hide"));
 $("wp-reset").addEventListener("click", async () => {
   try { await wpPost({ reset: true }); wpMessage("Back to the background from the config."); await loadConfig(); }
   catch (err) { wpMessage(err.message, true); }

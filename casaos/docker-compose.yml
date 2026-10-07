@@ -19,7 +19,7 @@ services:
     environment:
       GL_PASS: ""                 # router root password: set it in the app settings in CasaOS
       GL_USER: root
-      UNSPLASH_ACCESS_KEY: ""     # optional: Unsplash API access key (photo location for page wallpapers)
+      UNSPLASH_ACCESS_KEY: ""     # optional: Unsplash API access key (collection rotation, photo location)
       LUCI_PORT: "8080"
       ADGUARD_PORT: "3000"
       WAN_INTERFACE: wan
@@ -56,7 +56,7 @@ services:
             en_US: Router user
         - container: UNSPLASH_ACCESS_KEY
           description:
-            en_US: Optional Unsplash API access key - adds the photo location to wallpapers set from the page
+            en_US: Optional Unsplash API access key - rotates Unsplash collections and adds the photo location
         - container: POLL_SECONDS
           description:
             en_US: Poll interval in seconds (5-60)

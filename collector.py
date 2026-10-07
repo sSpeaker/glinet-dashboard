@@ -11,7 +11,8 @@ and serves them next to the start page:
   GET /api/history -> speed tests, traffic per day and WAN/IP events (data/history.json)
   GET /api/status  -> cached snapshot {"now", "interval", "sources": {name: {data, updated, error}}}
   POST /api/speedtest {"enable": true|false} -> start/stop the router speed test (network-quality.set_speedtest)
-  POST /api/background {"url": "https://unsplash.com/photos/..."} | {"reset": true} -> wallpaper set from the page
+  POST /api/background {"url": "https://unsplash.com/photos/..."} | {"reset": true} -> wallpaper set from the page;
+       {"collection": url, "order": "random"|"order", "minutes": 60} | {"rotate": "next"|"prev"|"hide"} | {"stop_rotation": true}
   POST /api/wan/reconnect {} -> re-dial the WAN (LuCI interface "Restart": /sbin/ifup <wan>)
   POST /api/dns/protection {"enabled": false, "minutes": 30} | {"enabled": true} -> pause/resume AdGuard protection
   POST /api/vpn {"tunnel_id": 1234, "enabled": true|false} -> VPN client tunnel on/off (vpn-client.set_tunnel)
@@ -1441,30 +1442,47 @@ class Wallpaper:
                 LOG.warning("Unsplash API: %s; falling back to the download link", exc)
         if details is None:
             details = self._from_download_link(photo)
-        author, api_location, image_url = details
-        location = location or api_location[:80]
-        with urlopen(Request(image_url, headers={"User-Agent": self.UA}), timeout=30) as resp:
+        author, api_location, image_url, position = details
+        entry = {"id": photo, "credit": author, "credit_url": f"https://unsplash.com/photos/{photo}",
+                 "location": clean_location(location or api_location[:80]), "image": image_url,
+                 "position": None if location else position}   # a typed location has no coordinates
+        ROTATION.stop()  # a single photo replaces a rotating collection
+        state = self.show(entry, {f"{photo}.jpg"})
+        LOG.info("wallpaper set from the page: Unsplash %s by %s", photo, author or "unknown")
+        return state
+
+    def fetch(self, entry):
+        """Downloads entry["image"] into data/wallpapers/<id>.jpg unless it is there already."""
+        file = self.folder / f"{entry['id']}.jpg"
+        if file.is_file():
+            return file.name
+        with urlopen(Request(entry["image"], headers={"User-Agent": self.UA}), timeout=30) as resp:
             if not resp.headers.get("Content-Type", "").startswith("image/"):
                 raise RuntimeError("the Unsplash CDN did not return an image")
             data = resp.read(self.MAX_BYTES + 1)
         if len(data) > self.MAX_BYTES:
             raise RuntimeError("the image is larger than 25 MB")
         self.folder.mkdir(parents=True, exist_ok=True)
-        name = f"{photo}.jpg"
-        (self.folder / name).write_bytes(data)
-        state = {"file": name, "id": photo, "set_at": time.time(), "credit": author,
-                 "credit_url": f"https://unsplash.com/photos/{photo}", "location": clean_location(location)}
+        tmp = file.with_suffix(".part")
+        tmp.write_bytes(data)
+        tmp.replace(file)
+        return file.name
+
+    def show(self, entry, keep):
+        """Makes entry the page wallpaper; keep = file names that must not be cleaned up."""
+        name = self.fetch(entry)
+        state = {"file": name, "id": entry["id"], "set_at": time.time(), "credit": entry["credit"],
+                 "credit_url": entry["credit_url"], "location": entry.get("location") or "", "position": entry.get("position")}
         tmp = self.state_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(state), encoding="utf-8")
         tmp.replace(self.state_path)
         with self._lock:
             self._current = state
-        self._cleanup(keep=name)
-        LOG.info("wallpaper set from the page: Unsplash %s by %s (%d KB)", photo, author or "unknown", len(data) // 1024)
+        self._cleanup(keep=set(keep) | {name})
         return state
 
     def _from_api(self, photo, key):
-        """(author, location, image URL) from api.unsplash.com; ValueError if the photo does not exist."""
+        """(author, location, image URL, [lat, lng] or None) from api.unsplash.com; ValueError if the photo does not exist."""
         headers = {"Authorization": f"Client-ID {key}", "Accept-Version": "v1", "User-Agent": self.UA}
         try:
             with urlopen(Request(f"https://api.unsplash.com/photos/{photo}", headers=headers), timeout=15) as resp:
@@ -1482,10 +1500,10 @@ class Wallpaper:
             urlopen(Request(data["links"]["download_location"], headers=headers), timeout=10).close()
         except Exception:
             pass
-        return (data.get("user") or {}).get("name") or "", location or "", self._sized(data["urls"]["raw"])
+        return (data.get("user") or {}).get("name") or "", location or "", self._sized(data["urls"]["raw"]), photo_position(data)
 
     def _from_download_link(self, photo):
-        """(author, "", image URL) without an API key: the download endpoint redirects to the image CDN
+        """(author, "", image URL, None) without an API key: the download endpoint redirects to the image CDN
         and its dl= parameter names the author ("marek-piwnicki-<id>-unsplash.jpg")."""
         try:
             build_opener(NoRedirect).open(Request(f"https://unsplash.com/photos/{photo}/download?force=true",
@@ -1500,7 +1518,7 @@ class Wallpaper:
             raise RuntimeError("Unsplash did not return a free photo download (Unsplash+ photos need a subscription)")
         match = re.fullmatch(rf"(.+)-{re.escape(photo)}-unsplash\.jpg", parse_qs(cdn.query).get("dl", [""])[0])
         author = " ".join(word.capitalize() for word in match[1].split("-")) if match else ""
-        return author, "", self._sized(location)
+        return author, "", self._sized(location), None
 
     def _sized(self, url):
         """The image CDN URL resized to WIDTH px as JPEG (Unsplash's imgix parameters)."""
@@ -1516,7 +1534,7 @@ class Wallpaper:
         with self._lock:
             if not self._current:
                 raise Conflict("no wallpaper set from the page: paste a photo link first")
-            self._current = {**self._current, "location": clean_location(location)}
+            self._current = {**self._current, "location": clean_location(location), "position": None}
             state = dict(self._current)
         tmp = self.state_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(state), encoding="utf-8")
@@ -1524,6 +1542,7 @@ class Wallpaper:
         return state
 
     def reset(self):
+        ROTATION.stop()
         with self._lock:
             self._current = None
         self.state_path.unlink(missing_ok=True)
@@ -1531,8 +1550,9 @@ class Wallpaper:
         LOG.info("wallpaper reset to the config background")
 
     def _cleanup(self, keep):
+        keep = keep if isinstance(keep, set) else {keep}
         for old in self.folder.glob("*.jpg") if self.folder.is_dir() else []:
-            if old.name != keep:
+            if old.name not in keep:
                 old.unlink(missing_ok=True)
 
 
@@ -1544,6 +1564,283 @@ def clean_location(value):
 
 
 WALLPAPER = Wallpaper(ROOT / "data" / "wallpapers")
+
+
+class Unsplash:
+    """Calls to api.unsplash.com with UNSPLASH_ACCESS_KEY; readable errors for the page."""
+
+    @staticmethod
+    def key():
+        return os.environ.get("UNSPLASH_ACCESS_KEY", "").strip()
+
+    @classmethod
+    def get(cls, path, **params):
+        key = cls.key()
+        if not key:
+            raise ValueError("rotating a collection needs an Unsplash API key: set UNSPLASH_ACCESS_KEY (see the README)")
+        url = f"https://api.unsplash.com{path}" + (f"?{urlencode(params)}" if params else "")
+        headers = {"Authorization": f"Client-ID {key}", "Accept-Version": "v1", "User-Agent": Wallpaper.UA}
+        try:
+            with urlopen(Request(url, headers=headers), timeout=15) as resp:
+                return json.load(resp), resp.headers
+        except HTTPError as exc:
+            body = exc.read(300).decode(errors="replace")
+            if exc.code == 404:
+                raise ValueError("Unsplash does not know this collection (or it is private)") from None
+            if exc.code == 401:
+                raise ValueError("Unsplash refused the API key (UNSPLASH_ACCESS_KEY)") from None
+            if exc.code == 403 and "Rate Limit" in body:
+                raise RuntimeError("Unsplash API limit reached (50 requests an hour with a demo key), try again later") from None
+            raise RuntimeError(f"Unsplash API: HTTP {exc.code} {body.strip()[:120]}") from None
+
+    @staticmethod
+    def track(photo):
+        """Counts a download for the photographer, as the Unsplash API guidelines ask; failures do not matter."""
+        url = (photo.get("links") or {}).get("download_location")
+        if url and Unsplash.key():
+            try:
+                urlopen(Request(url, headers={"Authorization": f"Client-ID {Unsplash.key()}", "User-Agent": Wallpaper.UA}), timeout=10).close()
+            except Exception:
+                pass
+
+
+def photo_position(photo):
+    pos = (photo.get("location") or {}).get("position") or {}
+    lat, lng = pos.get("latitude"), pos.get("longitude")
+    return [round(lat, 5), round(lng, 5)] if lat and lng else None
+
+
+def photo_place(photo):
+    """Where the photo was taken: Unsplash's place name, or "city, country" when the name is a long street address."""
+    place = photo.get("location") or {}
+    name, short = place.get("name") or "", ", ".join(p for p in (place.get("city"), place.get("country")) if p)
+    return short if short and len(name) > 40 else name or short
+
+
+class WallpaperRotation:
+    """The page wallpaper taken in turn from an Unsplash collection (Settings → Wallpaper).
+
+    Random order uses /photos/random?collections= (one request per photo, landscape only, no repeats until
+    the collection is used up); collection order pages through /collections/{id}/photos and skips portrait,
+    paid and hidden photos. Every photo shown is kept in a short history for the ‹ button, the next one is
+    downloaded ahead so › is instant, and "hide" adds a photo to a list that is never shown again.
+    State in data/rotation.json; the photos themselves go through Wallpaper (data/wallpapers/).
+    """
+
+    HISTORY = 30          # photos remembered for ‹
+    KEEP_FILES = 6        # of those, how many stay downloaded
+    MINUTES = (0, 15, 30, 60, 180, 360, 720, 1440)   # 0: only with the buttons
+
+    def __init__(self, wallpaper, path):
+        self.wp, self.path = wallpaper, path
+        self._lock = threading.RLock()
+        self._busy = threading.Lock()
+        self._page = (None, [])
+        try:
+            self.state = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self.state = {}
+        self.state.setdefault("hidden", [])
+        self.state.setdefault("active", False)
+
+    # --- state ---------------------------------------------------------------------------------
+    def _save(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.state), encoding="utf-8")
+            tmp.replace(self.path)
+        except OSError as exc:
+            LOG.warning("wallpaper rotation not saved: %s", exc)
+
+    def status(self):
+        with self._lock:
+            s = self.state
+            if not s.get("active"):
+                return None
+            return {"title": s["collection"]["title"], "url": s["collection"]["url"], "total": s["collection"]["total"],
+                    "order": s["order"], "minutes": s["minutes"], "can_back": s.get("pos", 0) > 0,
+                    "next_at": s.get("next_at") if s["minutes"] else None}
+
+    def keep_files(self):
+        """Wallpaper files still needed: the recent history and the photo downloaded ahead."""
+        with self._lock:
+            entries = self.state.get("history", [])[-self.KEEP_FILES:] + [self.state.get("upcoming") or {}]
+            return {f"{e['id']}.jpg" for e in entries if e.get("id")}
+
+    def stop(self):
+        with self._lock:
+            if self.state.get("active"):
+                LOG.info("wallpaper rotation stopped")
+            self.state.update(active=False, history=[], pos=0, upcoming=None)
+            self._save()
+
+    # --- control from the page -----------------------------------------------------------------
+    @staticmethod
+    def collection_id(url):
+        parts = urlsplit(str(url).strip())
+        segments = [p for p in parts.path.split("/") if p]
+        if parts.scheme == "https" and parts.hostname in ("unsplash.com", "www.unsplash.com") and "collections" in segments:
+            i = segments.index("collections")
+            if i + 1 < len(segments) and re.fullmatch(r"[A-Za-z0-9_-]{1,40}", segments[i + 1]):
+                return segments[i + 1]
+        raise ValueError("paste the link of an Unsplash collection, e.g. https://unsplash.com/collections/317099/unsplash-editorial")
+
+    def start(self, url, order, minutes):
+        if order not in ("random", "order"):
+            raise ValueError("order must be random or order")
+        if minutes not in self.MINUTES:
+            raise ValueError(f"minutes must be one of {', '.join(map(str, self.MINUTES))}")
+        cid = self.collection_id(url)
+        info, _ = Unsplash.get(f"/collections/{cid}")
+        if not info.get("total_photos"):
+            raise ValueError("this collection has no photos")
+        with self._lock:
+            self.state.update(active=True, order=order, minutes=minutes, history=[], pos=0, upcoming=None, cursor=0, seen=[],
+                              collection={"id": cid, "title": str(info.get("title") or cid)[:80], "total": int(info["total_photos"]),
+                                          "url": (info.get("links") or {}).get("html") or f"https://unsplash.com/collections/{cid}"})
+            self._page = (None, [])
+        LOG.info("wallpaper rotation: collection %s (%s photos), %s, every %s min", cid, info["total_photos"], order, minutes or "-")
+        return self.step("next")
+
+    def step(self, action):
+        """next / prev / hide; returns the new status. One at a time: a second click while busy is refused."""
+        if not self._busy.acquire(blocking=False):
+            raise Conflict("the wallpaper is changing already")
+        try:
+            with self._lock:
+                if not self.state.get("active"):
+                    raise Conflict("no collection is rotating: start one in Settings")
+                history, pos = self.state["history"], self.state.get("pos", 0)
+                if action == "prev":
+                    if pos <= 0:
+                        raise Conflict("this is the first photo of the rotation")
+                    pos -= 1
+                elif action == "hide":
+                    if history:
+                        self.state["hidden"] = (self.state["hidden"] + [history[pos]["id"]])[-2000:]
+                        LOG.info("wallpaper rotation: %s hidden", history[pos]["id"])
+                        del history[pos]
+                        pos -= 1
+                    action = "next"
+                if action == "next":
+                    pos += 1
+                entry = history[pos] if 0 <= pos < len(history) else None
+            new = entry is None
+            if new:  # past the end of the history: the photo downloaded ahead, or a fresh one
+                with self._lock:
+                    entry, self.state["upcoming"] = self.state.get("upcoming"), None
+                if not entry or entry["id"] in self.state["hidden"]:
+                    entry = self._pick()
+            self.wp.show(entry, self.keep_files() | {f"{entry['id']}.jpg"})
+            with self._lock:
+                if new:
+                    history.append(entry)
+                    pos = len(history) - 1
+                    if len(history) > self.HISTORY:
+                        del history[:-self.HISTORY]
+                        pos = len(history) - 1
+                self.state.update(history=history, pos=pos, next_at=time.time() + self.state["minutes"] * 60)
+                self._save()
+        finally:
+            self._busy.release()
+        threading.Thread(target=self._prefetch, name="wallpaper-prefetch", daemon=True).start()
+        return self.status()
+
+    # --- picking photos ------------------------------------------------------------------------
+    def _entry(self, photo):
+        return {"id": photo["id"], "credit": (photo.get("user") or {}).get("name") or "",
+                "credit_url": f"https://unsplash.com/photos/{photo['id']}", "location": clean_location(photo_place(photo)[:80]),
+                "position": photo_position(photo), "image": self.wp._sized(photo["urls"]["raw"]),
+                "track": (photo.get("links") or {}).get("download_location")}
+
+    def _usable(self, photo, skip):
+        return (photo.get("id") not in skip and not photo.get("premium") and not photo.get("plus")
+                and (photo.get("width") or 1) >= (photo.get("height") or 0))   # landscape only: it is a desktop wallpaper
+
+    def _pick(self):
+        with self._lock:
+            s = dict(self.state)
+            skip = set(s["hidden"]) | set(s.get("seen", [])) | {e["id"] for e in s.get("history", [])[-5:]}
+        cid, total = s["collection"]["id"], s["collection"]["total"]
+        if s["order"] == "random":
+            for _ in range(4):
+                photo, _ = Unsplash.get("/photos/random", collections=cid, orientation="landscape")
+                if self._usable(photo, skip):
+                    break
+            else:  # everything recent was seen: start the round again
+                with self._lock:
+                    self.state["seen"] = []
+                if photo.get("id") in s["hidden"]:
+                    raise RuntimeError("Unsplash keeps returning hidden photos, try again")
+            entry = self._entry(photo)
+        else:
+            for _ in range(total + 31):
+                with self._lock:
+                    cursor = self.state.get("cursor", 0)
+                    if cursor >= total:
+                        cursor = self.state["cursor"] = 0
+                page_no, idx = cursor // 30 + 1, cursor % 30
+                if self._page[0] != page_no:
+                    items, headers = Unsplash.get(f"/collections/{cid}/photos", page=page_no, per_page=30)
+                    self._page = (page_no, items)
+                    total = int(headers.get("X-Total") or total)
+                items = self._page[1]
+                with self._lock:
+                    self.state["cursor"] = cursor + 1 if idx < len(items) else total
+                if idx < len(items) and self._usable(items[idx], set(s["hidden"])):
+                    break
+            else:
+                raise RuntimeError("no landscape photo found in this collection")
+            photo, _ = Unsplash.get(f"/photos/{items[idx]['id']}")   # the list has no location
+            entry = self._entry(photo)
+        Unsplash.track(photo)
+        with self._lock:
+            self.state["seen"] = (self.state.get("seen", []) + [entry["id"]])[-max(10, min(total - 1, 500)):]
+        return entry
+
+    def _prefetch(self):
+        """Downloads the next photo ahead, so › shows it at once."""
+        try:
+            with self._lock:
+                if not self.state.get("active") or self.state.get("upcoming") or self.state.get("pos", 0) < len(self.state.get("history", [])) - 1:
+                    return
+            entry = self._pick()
+            self.wp.fetch(entry)
+            with self._lock:
+                if self.state.get("active"):
+                    self.state["upcoming"] = entry
+                    self._save()
+        except Exception as exc:
+            LOG.warning("wallpaper rotation: could not prepare the next photo: %s", exc)
+
+    def loop(self):
+        """Changes the photo on schedule; resumes after a restart."""
+        time.sleep(15)
+        with self._lock:
+            restart = self.state.get("active") and not self.wp.current()
+        if restart:
+            try:
+                self.step("next")
+            except Exception as exc:
+                LOG.warning("wallpaper rotation: %s", exc)
+        self._prefetch()
+        while True:
+            time.sleep(20)
+            with self._lock:
+                due = self.state.get("active") and self.state.get("minutes") and time.time() >= self.state.get("next_at", 0)
+            if due:
+                try:
+                    self.step("next")
+                except Conflict:
+                    pass
+                except Exception as exc:
+                    LOG.warning("wallpaper rotation: %s", exc)
+                    with self._lock:  # try again in 5 minutes, not every 20 s
+                        self.state["next_at"] = time.time() + 300
+
+
+ROTATION = WallpaperRotation(WALLPAPER, ROOT / "data" / "rotation.json")
 
 
 class WebRedirect(HTTPRedirectHandler):
@@ -1802,7 +2099,8 @@ def site_config():
         credit = str(wallpaper.get("credit") or "").removesuffix(" / Unsplash").removesuffix("Unsplash").strip()
         background.update(image=f"media/{wallpaper['file']}?v={int(wallpaper['set_at'])}", tone="auto",
                           credit=credit, credit_url=wallpaper["credit_url"],
-                          location=wallpaper.get("location") or "", source="page")
+                          location=wallpaper.get("location") or "", position=wallpaper.get("position"),
+                          rotation=ROTATION.status(), source="page")
         page["background"] = background
     elif configured:
         page["background"] = {**configured, "source": "config"}
@@ -2030,6 +2328,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(502, {"error": f"AdGuard: {exc}"})
 
     def _background(self, body):
+        if "collection" in body or "rotate" in body or body.get("stop_rotation") is True:
+            self._rotation(body)
+            return
         if body.get("reset") is True:
             WALLPAPER.reset()
             self._json(200, {"ok": True})
@@ -2050,6 +2351,32 @@ class Handler(BaseHTTPRequestHandler):
             LOG.warning("wallpaper: %s", exc)
             self._json(502, {"error": str(exc)})
 
+    def _rotation(self, body):
+        """{"collection": url, "order": "random"|"order", "minutes": 60} starts a collection;
+        {"rotate": "next"|"prev"|"hide"} steps through it; {"stop_rotation": true} keeps the current photo."""
+        try:
+            if body.get("stop_rotation") is True:
+                ROTATION.stop()
+                self._json(200, {"ok": True})
+                return
+            if "collection" in body:
+                minutes = body.get("minutes", 60)
+                if not isinstance(body["collection"], str) or not isinstance(minutes, int) or isinstance(minutes, bool):
+                    raise ValueError("body must be {\"collection\": \"https://unsplash.com/collections/...\", \"order\": \"random\", \"minutes\": 60}")
+                rotation = ROTATION.start(body["collection"], body.get("order", "random"), minutes)
+            elif body.get("rotate") in ("next", "prev", "hide"):
+                rotation = ROTATION.step(body["rotate"])
+            else:
+                raise ValueError("rotate must be next, prev or hide")
+            self._json(200, {"ok": True, "rotation": rotation, "wallpaper": WALLPAPER.current()})
+        except ValueError as exc:
+            self._json(400, {"error": str(exc)})
+        except Conflict as exc:
+            self._json(409, {"error": str(exc)})
+        except Exception as exc:  # Unsplash unreachable, rate limit or an unexpected answer
+            LOG.warning("wallpaper rotation: %s", exc)
+            self._json(502, {"error": str(exc)})
+
     def log_message(self, fmt, *args):
         pass  # keep the container log for router problems
 
@@ -2064,5 +2391,6 @@ if __name__ == "__main__":
     threading.Thread(target=HEALTH.loop, name="health", daemon=True).start()
     threading.Thread(target=VPN_EXIT.loop, name="vpn-exit", daemon=True).start()
     threading.Thread(target=BOOKMARKS.loop, name="bookmarks", daemon=True).start()
+    threading.Thread(target=ROTATION.loop, name="wallpaper-rotation", daemon=True).start()
     LOG.info("serving on :%d, polling %s every %d s", PORT, GL_HOST, POLL_SECONDS)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

@@ -52,8 +52,8 @@ to tiles for your homelab services. One small container, one port, configured wi
   - Google search box, clock and a tab icon;
   - hover the clock for the time in other cities (`page.world_clock`);
   - hints wait a moment before appearing (`page.hint_delay`), so they do not pop up while the mouse passes by;
-  - quote of the day in the bottom-left corner, downloaded daily and cached for offline use;
-  - background image with the photographer and location in the bottom-right corner: set it in the config, or paste an Unsplash photo link in *Settings* (see [Wallpaper from the page](#wallpaper-from-the-page));
+  - quote of the day in the bottom-left corner, downloaded daily and cached for offline use; the author's name links to Wikipedia;
+  - background image with the photographer and location in the bottom-right corner (the location opens Google Maps): set it in the config, paste an Unsplash photo link in *Settings*, or let it rotate through an Unsplash collection with ‹ › and "don't show again" buttons (see [Wallpaper from the page](#wallpaper-from-the-page));
   - light/dark/auto theme with a switch.
 - **VPN** (button next to the *Network* heading, showing *VPN off* or the active tunnel): the router's VPN client tunnels with their state (off / connecting / connected) and a *Turn on* / *Turn off* switch each, the same as on the GL VPN Dashboard; turning one on asks for confirmation. A connected tunnel shows its external IP and location, looked up by the collector through the tunnel (ifconfig.co, ipinfo.io as backup); if the dashboard's own host does not use the tunnel, it says so instead of showing a wrong IP.
 - **Devices** (button next to the *Network* heading, with the client count): every device from the router's client list with its IP, 2.4G/5G/cable, current download/upload, traffic and connected time; sortable, filter by name, IP or MAC, offline devices collapsed. A device never seen before is marked *new* for 24 hours and logged in the history.
@@ -216,11 +216,23 @@ extension, it also syncs to your other computers with Chrome sync.
 
 ### Wallpaper from the page
 
-Open **Settings** (gear in the bottom-right corner) and paste the link of an Unsplash photo page
+Open **Settings** (gear in the bottom-right corner).
+
+**Rotate a collection:** paste the link of an Unsplash collection (`https://unsplash.com/collections/...`;
+[browse collections](https://unsplash.com/collections)), choose random or collection order and how often to change
+(every 15 minutes to once a day, or only with the buttons), then **Start**.
+
+- **Buttons:** ‹ goes back through the last 30 photos, › shows the next one (already downloaded, so it appears at once), and the crossed-out eye never shows this photo again. They sit next to the photo credit while a collection rotates.
+- **Which photos:** landscape and free photos only; random order does not repeat a photo until the collection is used up.
+- **Runs on the server:** the collector changes the photo on schedule, so every browser shows the same one, and carries on after a restart. *Stop rotating, keep this photo* ends it.
+- **Needs** `UNSPLASH_ACCESS_KEY` (below): Unsplash lists collections only through its API. A new photo costs about two of the 50 hourly API requests.
+- **State:** `/app/data/rotation.json` (history, hidden photos), photos in `/app/data/wallpapers`.
+
+**A single photo:** paste the link of an Unsplash photo page
 (`https://unsplash.com/photos/...`; [browse desktop wallpapers](https://unsplash.com/wallpapers/desktop)).
 
 - **What happens:** the collector downloads the photo at 3840 px into `/app/data/wallpapers` and credits the photographer, with a link to the photo.
-- **Location:** set `UNSPLASH_ACCESS_KEY` (a free key, see below) and the collector also fills in where the photo was taken, plus the exact author name. The optional *Location* field overrides it or adds a location by hand.
+- **Location:** set `UNSPLASH_ACCESS_KEY` (a free key, see below) and the collector also fills in where the photo was taken (with coordinates for Google Maps when Unsplash has them), plus the exact author name. The optional *Location* field overrides it or adds a location by hand.
 - **Priority:** the page wallpaper replaces `page.background.image` until you click **Back to the config background**; `shade`, `blur` and `fit` from the config still apply.
 - **Limits:** Unsplash+ (paid) photos cannot be downloaded. Only unsplash.com links are accepted; use the config for images from anywhere else.
 
@@ -236,7 +248,7 @@ To get a key:
 |---|---|---|
 | `GL_PASS` | *(required)* | Router `root` password |
 | `GL_USER` | `root` | Router user |
-| `UNSPLASH_ACCESS_KEY` | *(empty)* | Optional [Unsplash API](https://unsplash.com/developers) access key: wallpapers set from the page get the photo location and the exact author name |
+| `UNSPLASH_ACCESS_KEY` | *(empty)* | Optional [Unsplash API](https://unsplash.com/developers) access key: needed to rotate a collection; wallpapers set from the page get the photo location and the exact author name |
 | `GL_HOST` | `network.router` from the config, else `192.168.8.1` | Router address override |
 | `LUCI_PORT` | `8080` | LuCI port (WAN counters) |
 | `ADGUARD_PORT` | `3000` | AdGuard Home port on the router |
@@ -267,12 +279,14 @@ The page is a single static HTML file served by the same process.
 | Alerts | computed by the collector after every poll from the sources above, the history and `alerts:` in the config |
 | Quick links | the page itself (`og:site_name` / `<title>`, `<link rel="icon">`, else `/favicon.ico`), read once by the collector |
 | Wallpaper from the page | Unsplash download link (author from its file name) or, with `UNSPLASH_ACCESS_KEY`, the Unsplash API (author and location); stored in `/app/data/wallpapers` |
+| Collection rotation | Unsplash API: `/photos/random?collections=` (random order) or `/collections/{id}/photos` (collection order), downloads counted for the photographer as Unsplash asks |
 
 Endpoints: `GET /api/status`, `GET /api/config`, `GET /api/quote`, `GET /assets/…` (images from the config folder),
 `POST /api/speedtest` with `{"enable": true|false}`, `POST /api/wan/reconnect` with `{}`,
 `POST /api/dns/protection` with `{"enabled": false, "minutes": 30}` or `{"enabled": true}`,
 `POST /api/vpn` with `{"tunnel_id": 1234, "enabled": true|false}`,
 `POST /api/background` with `{"url": "https://unsplash.com/photos/...", "location": "..."}`, `{"location": "..."}` or `{"reset": true}`,
+or for a collection `{"collection": "https://unsplash.com/collections/...", "order": "random"|"order", "minutes": 60}`, `{"rotate": "next"|"prev"|"hide"}`, `{"stop_rotation": true}`,
 `GET /api/bookmarks`, `POST /api/bookmarks` with `{"links": [{"id"?, "url", "name", "refresh"?}]}` (the whole list),
 `GET /media/…` (the wallpaper set from the page, `media/favicons/…` the quick link icons), `GET /api/history`.
 
@@ -292,7 +306,7 @@ Notes:
 - **Safe to leave running:** failed logins back off exponentially (15 s up to 10 min), so a wrong password cannot trigger the router's brute-force lockout.
 - **No authentication on the dashboard itself.** Keep it on your LAN or VPN, for example behind a reverse proxy with an internal-only DNS name, and do not expose it to the internet.
 - **Action endpoints:** all `POST` endpoints only accept `Content-Type: application/json`, which blocks cross-site form posts. Speed test starts and WAN reconnects are limited to one per minute, VPN switches to one per 5 s; the page asks before reconnecting the WAN and before turning a VPN on.
-- **Wallpaper downloads:** for wallpapers the collector only fetches unsplash.com / images.unsplash.com. `UNSPLASH_ACCESS_KEY` is read from the environment like `GL_PASS`.
+- **Wallpaper downloads:** for wallpapers the collector only talks to unsplash.com, api.unsplash.com and images.unsplash.com. `UNSPLASH_ACCESS_KEY` is read from the environment like `GL_PASS`.
 - **Quick link previews:** to read a title and icon the collector opens the address you save, which can be any http(s) URL, including LAN services (self-signed certificates are accepted for this). Redirects are followed only to http(s); `file:`, `ftp:` and other schemes are refused; at most 512 KB of the page and a 256 KB image are read, and only real image files are kept. Anyone who can open the dashboard can make it fetch a URL this way: one more reason to keep it on your LAN.
 - **Container hardening:** read-only root filesystem, all capabilities dropped, runs as an unprivileged user. SVG assets are served with a CSP that blocks scripts.
 
