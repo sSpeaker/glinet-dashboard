@@ -12,6 +12,7 @@ page:
   theme: auto                   # default theme: auto (follows the system), light or dark;
                                 # the switch in the bottom-right corner overrides it per browser
   hint_delay: 600               # ms the mouse must rest on an element before its hint appears; 0 = at once
+  tile_response_time: true      # tiles without a widget show the response time of their status check
   # world_clock:                # hover the clock: time and date in other cities (up to 6); off = no hint
   #   - name: Kyiv
   #     timezone: Europe/Kyiv     # IANA time zone: Europe/London, America/New_York, Asia/Tokyo, ...
@@ -52,6 +53,23 @@ network:
 speedtest:
   schedule: "03:00"             # automatic daily speed test, router local time; "" turns it off
 
+# Cards, in this order: the router's (internet, quality, dns) and plugins from cards/<type>/. The first three
+# (four when none is wide like dns) form the top row, the rest a "Servers" row. Leave the section out for the
+# three router cards; remove a line to switch a card off. Options of every plugin: cards/README.md.
+# Secrets only via *_env options that name environment variables.
+# cards:
+#   - internet
+#   - quality
+#   - dns
+#   - type: node                       # a server with Prometheus node_exporter (Proxmox, CasaOS, any Linux)
+#     title: Proxmox
+#     url: http://192.168.8.10:9100
+#     link: https://proxmox.example.com  # what the card title opens
+#   - type: qbittorrent
+#     url: http://192.168.8.20:8080    # WebUI address
+#     username: admin                  # only if the WebUI asks for a login,
+#     password_env: QBIT_PASS          # with the password in this environment variable
+
 # Warnings (orange) and critical alerts (red) shown next to "Live". A level set to off is not checked;
 # leave the whole section out to keep these defaults.
 alerts:
@@ -77,11 +95,17 @@ alerts:
 #                     without it the tile shows `mark`. Free icons: https://github.com/homarr-labs/dashboard-icons
 #   icon_dark (opt.)  variant used with the dark theme, e.g. a white logo instead of a black one
 #   mark  (optional)  2-3 letters shown when there is no icon; default: initials of the name
-#   host  (optional)  second line on the tile, usually the public hostname
-#   addr  (optional)  LAN backend ip:port, shown in the tooltip on hover; when it is host:port the
-#                     tile gets a status dot (TCP check every minute)
+#   host  (optional)  the public hostname, shown in the tile's info window
+#   addr  (optional)  LAN backend ip:port, shown in the info window; when it is host:port the
+#                     tile gets a status dot (TCP check every minute) and shows its response time
 #   check (optional)  false = no status dot, url = check the host of url, or another host:port to check
-# The filter box searches name, host and addr. Groups without services are hidden.
+#   widget (optional) a live value on the tile instead of the response time, with details behind it:
+#                     router | adguard (built in, no options), or a plugin with its options, e.g.
+#                     widget: {type: qbittorrent, url: "http://192.168.8.20:8080"}   (see cards/README.md)
+#   container, guest (optional)  the Docker container name / Proxmox guest id whose CPU and memory the info
+#                     window charts (from a node card); found by name when left out
+# Click the value in a tile's second line for its info window. The filter box searches name, host and addr.
+# Groups without services are hidden.
 groups:
   - name: Network
     services:
@@ -92,12 +116,14 @@ groups:
         url: https://router.example.com
         host: router.example.com
         addr: 192.168.8.1:80
+        widget: router                 # CPU temperature, memory and load on the tile
       - name: AdGuard Home
         mark: AG
         icon: adguard-home.svg
         url: https://router.example.com:3000
         host: router.example.com:3000
         addr: 192.168.8.1:3000
+        widget: adguard                # share of blocked queries on the tile
       - name: Nginx Proxy Manager
         mark: NP
         icon: nginx-proxy-manager.svg

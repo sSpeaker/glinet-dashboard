@@ -2,9 +2,13 @@
 
 A self-hosted start page with live stats from a **GL.iNet** router: WAN traffic, the router's
 **Network Quality** score, **AdGuard Home** DNS stats and a one-click / nightly **speed test**, next
-to tiles for your homelab services. One small container, one port, configured with a single YAML file.
+to tiles for your homelab services. Plugins add server cards (node_exporter: Proxmox, CasaOS, any Linux
+host) and live values on the tiles (qBittorrent, Nginx Proxy Manager, Home Assistant, AIOStreams), with
+history charts kept for 30 days. One small container, one port, configured with a single YAML file.
 
 ![Dashboard, dark theme](docs/screenshot-dark.jpg)
+
+![Servers row with node_exporter cards, and service tiles with live values](docs/screenshot-servers.jpg)
 
 <details>
 <summary>Light theme, quick links, history</summary>
@@ -41,8 +45,9 @@ to tiles for your homelab services. One small container, one port, configured wi
 - **Services:**
   - grouped tiles with icons that open in the same tab, like a browser start page;
   - instant filter: `/` to focus, Enter opens the first match, Cmd/Ctrl+Enter opens it in a new tab;
-  - the LAN address shows in the tooltip;
-  - a status dot on every tile with a `host:port` address (TCP check every minute), the tooltip says since when a service is down, and the heading counts services that are down.
+  - a status dot on every tile with a `host:port` address (TCP check every minute), the tooltip says since when a service is down, and the heading counts services that are down;
+  - the tile's second line is a live value: the response time, or with a `widget:` something from the service itself (router temperature and load, AdGuard's blocked share, qBittorrent speeds, certificate expiry in Nginx Proxy Manager, Home Assistant sensors, AIOStreams requests);
+  - click that value for the service's info window: address, LAN address, status, availability over 24 hours / 7 days / 30 days, history charts (response time, CPU and memory of its container or VM) and the widget's details.
 - **Quick links:** the grid button next to the search box opens a panel of bookmark tiles (icon, name, address).
   - The page title and favicon of each link are fetched by the collector and cached; type a name to override the title.
   - Keys **1-9** open the first nine links, with no field focused; any letter starts a Google search, `/` jumps to the service filter.
@@ -57,10 +62,16 @@ to tiles for your homelab services. One small container, one port, configured wi
   - light/dark/auto theme with a switch.
 - **VPN** (button next to the *Network* heading, showing *VPN off* or the active tunnel): the router's VPN client tunnels with their state (off / connecting / connected) and a *Turn on* / *Turn off* switch each, the same as on the GL VPN Dashboard; turning one on asks for confirmation. A connected tunnel shows its external IP and location, looked up by the collector through the tunnel (ifconfig.co, ipinfo.io as backup); if the dashboard's own host does not use the tunnel, it says so instead of showing a wrong IP.
 - **Devices** (button next to the *Network* heading, with the client count): every device from the router's client list with its IP, 2.4G/5G/cable, current download/upload, traffic and connected time; sortable, filter by name, IP or MAC, offline devices collapsed. A device never seen before is marked *new* for 24 hours and logged in the history.
-- **History** (button next to the *Network* heading), kept in `/app/data/history.json`; one section open at a time:
+- **History** (button next to the *Network* heading), kept in `/app/data/metrics.db`; one section open at a time:
   - events: WAN drops and reconnects, public IP changes, VPN switches and new devices, with a filter by type and text;
   - every speed test over time;
   - traffic received/sent per day for the last 30 days, with today, 7-day and monthly totals.
+- **Cards and widgets for other services**, each one a small plugin (`cards/<type>/`: `card.py` fetches, `card.js` draws) switched on in the config, as a card next to the router's or as a live value on a service tile. Built in:
+  - **node**: a server from Prometheus node_exporter (Proxmox, CasaOS, any Linux host): CPU, memory, temperature, network, free space per filesystem; in its window SMART per disk, failed systemd services, Proxmox VMs / LXCs and Docker containers with CPU trends;
+  - **qbittorrent**, **npm** (Nginx Proxy Manager), **homeassistant**, **aiostreams**.
+
+  The router cards can be switched off the same way. See [Cards](#cards) and [cards/README.md](cards/README.md) for the options and for writing your own.
+- **Metrics that survive restarts:** temperatures, CPU, memory, traffic, response times and whatever plugins record go into a small SQLite file (`/app/data/metrics.db`: 30-second points for a day, 5-minute averages for 30 days). Details windows chart them over 30 minutes to 30 days.
 - **Fits one screen** and scales up to fill large displays.
 - **Live configuration:** edits to `services.yaml` show up within 30 seconds, without a restart or rebuild. Mistakes are reported on the page while the last valid version keeps working.
 
@@ -195,6 +206,59 @@ groups:
 **Icons:** the example ships icons from [dashboard-icons](https://github.com/homarr-labs/dashboard-icons). Find more at
 `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/<name>.svg` and save them into `config/icons/`.
 
+### Cards
+
+`cards:` lists the cards in order: the router cards by name, plugin cards with their options.
+Without the section the page shows the three router cards, as before.
+
+```yaml
+cards:
+  - internet                       # remove a line to switch that card off
+  - quality
+  # - dns
+  - type: node                     # plugin from cards/node/: a server with node_exporter
+    title: Proxmox
+    url: http://192.168.8.10:9100
+    link: https://proxmox.example.com   # what the card title opens
+  - type: qbittorrent
+    url: http://192.168.8.20:8080  # WebUI address
+    username: admin                # only if the WebUI asks for a login,
+    password_env: QBIT_PASS        # with the password in this environment variable (add it to the compose file)
+```
+
+The first cards form the top row (three, or four when none is wide like the DNS card); the rest appear in a
+**Servers** row under it. Card alerts join the strip next to *Live*.
+
+The same plugins work as a **widget** on a service tile: a live value in the tile's second line and a details
+window behind it. `router` and `adguard` are built in and need no options:
+
+```yaml
+groups:
+  - name: Network
+    services:
+      - name: Router
+        url: https://router.example.com
+        addr: 192.168.8.1:80
+        widget: router               # temperature, memory, load
+      - name: Nginx Proxy Manager
+        url: https://npm.example.com
+        addr: 192.168.8.2:81
+        widget:
+          type: npm
+          url: http://192.168.8.2:81
+          username: dashboard@example.com
+          password_env: NPM_PASS
+```
+
+Tiles without a widget show their response time (`page.tile_response_time: false` turns that off). A service
+whose name matches a Docker container or a Proxmox guest of a `node` card also gets that container's CPU and
+memory charts; `container: <name>` / `guest: <vmid>` on the service picks it by hand.
+
+Every plugin's options, the scripts that add SMART, Proxmox guests and Docker containers to node_exporter, and
+how to write a plugin: [cards/README.md](cards/README.md). Your own plugins go into `config/cards/<type>/`
+(restart after adding one). Plugin secrets are environment variables: add them next to `GL_PASS` in the
+compose file (`NPM_PASS`, `HA_TOKEN` and `AIO_PASS` are passed through already).
+
 ### Quick links
 
 Open **Settings** (gear in the bottom-right corner) and add links; the address alone is enough (`github.com` becomes
@@ -255,6 +319,7 @@ To get a key:
 | `WAN_INTERFACE` | `wan` | OpenWrt interface name of the WAN |
 | `POLL_SECONDS` | `5` | Poll interval, 5-60 |
 | `HEALTH_SECONDS` | `60` | Service status check interval, 15-600 |
+| `NPM_PASS`, `HA_TOKEN`, `AIO_PASS`, … | *(empty)* | Secrets of card plugins: whatever a card's `*_env` options name |
 | `TOP_N` | `10` | Number of top domains kept |
 | `PORT` | `3100` | HTTP port inside the container |
 
@@ -279,6 +344,8 @@ The page is a single static HTML file served by the same process.
 | Alerts | computed by the collector after every poll from the sources above, the history and `alerts:` in the config |
 | Quick links | the page itself (`og:site_name` / `<title>`, `<link rel="icon">`, else `/favicon.ico`), read once by the collector |
 | Wallpaper from the page | Unsplash download link (author from its file name) or, with `UNSPLASH_ACCESS_KEY`, the Unsplash API (author and location); stored in `/app/data/wallpapers` |
+| Plugin cards and widgets | each plugin's `card.py` on its own schedule: node_exporter `/metrics`, qBittorrent `/api/v2/sync/maindata`, NPM `/api/nginx/…`, Home Assistant `/api/states`, AIOStreams `/api/v1/dashboard/…`; `card.js` served from `/cards/<type>/` |
+| Charts in details windows, availability | `/app/data/metrics.db` (SQLite): the collector records every metric itself, whether a page is open or not |
 | Collection rotation | Unsplash API: `/photos/random?collections=&count=30` (random order, 30 photos per request) or `/collections/{id}/photos` (collection order), downloads counted for the photographer as Unsplash asks |
 
 Endpoints: `GET /api/status`, `GET /api/config`, `GET /api/quote`, `GET /assets/…` (images from the config folder),
@@ -288,7 +355,10 @@ Endpoints: `GET /api/status`, `GET /api/config`, `GET /api/quote`, `GET /assets/
 `POST /api/background` with `{"url": "https://unsplash.com/photos/...", "location": "..."}`, `{"location": "..."}` or `{"reset": true}`,
 or for a collection `{"collection": "https://unsplash.com/collections/...", "order": "random"|"order", "minutes": 60}`, `{"rotate": "next"|"prev"|"hide"}`, `{"stop_rotation": true}`,
 `GET /api/bookmarks`, `POST /api/bookmarks` with `{"links": [{"id"?, "url", "name", "refresh"?}]}` (the whole list),
-`GET /media/…` (the wallpaper set from the page, `media/favicons/…` the quick link icons), `GET /api/history`.
+`GET /media/…` (the wallpaper set from the page, `media/favicons/…` the quick link icons), `GET /api/history`,
+`GET /cards/<type>/card.js|card.css` (the page side of a card plugin; `card.py` is never served),
+`GET /api/card?id=<id>` (one plugin card's data plus its lists and logs, for the details window),
+`GET /api/metrics?series=a,b&range=30m|2h|10h|24h|7d|30d` (time series for the charts). Plugin card data is in `/api/status` as `card:<id>`.
 
 Notes:
 
@@ -308,6 +378,8 @@ Notes:
 - **Action endpoints:** all `POST` endpoints only accept `Content-Type: application/json`, which blocks cross-site form posts. Speed test starts and WAN reconnects are limited to one per minute, VPN switches to one per 5 s; the page asks before reconnecting the WAN and before turning a VPN on.
 - **Wallpaper downloads:** for wallpapers the collector only talks to unsplash.com, api.unsplash.com and images.unsplash.com. `UNSPLASH_ACCESS_KEY` is read from the environment like `GL_PASS`.
 - **Quick link previews:** to read a title and icon the collector opens the address you save, which can be any http(s) URL, including LAN services (self-signed certificates are accepted for this). Redirects are followed only to http(s); `file:`, `ftp:` and other schemes are refused; at most 512 KB of the page and a 256 KB image are read, and only real image files are kept. Anyone who can open the dashboard can make it fetch a URL this way: one more reason to keep it on your LAN.
+- **Card plugins** are code that runs inside the dashboard: install only plugins you have read. Their secrets come from environment variables named in the config (`*_env`), never from the YAML, and the page never receives plugin options. The built-in plugins only read from their services; a refused login pauses the plugin (5 minutes, doubling up to 6 hours) instead of retrying.
+- **What the page can show to anyone who opens it:** with widgets and node cards that includes container names, proxy hosts, torrent names and log lines of your services. One more reason to keep the dashboard on your LAN.
 - **Container hardening:** read-only root filesystem, all capabilities dropped, runs as an unprivileged user. SVG assets are served with a CSP that blocks scripts.
 
 ## Development

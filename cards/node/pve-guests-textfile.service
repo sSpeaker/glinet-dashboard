@@ -1,0 +1,8 @@
+[Unit]
+Description=Proxmox guests for node_exporter (textfile collector)
+After=pve-cluster.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pve-guests-textfile
+Nice=10

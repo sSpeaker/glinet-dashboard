@@ -1,0 +1,8 @@
+[Unit]
+Description=Docker containers for node_exporter (textfile collector)
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/docker-textfile
+Nice=10

@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""Proxmox VMs and containers as Prometheus metrics, for node_exporter's textfile collector.
+
+Runs on the Proxmox host (as root, from pve-guests-textfile.timer once a minute), reads the guests with
+`pvesh get /cluster/resources --type vm` (local and read-only: no API token) and writes
+<textfile dir>/pve_guests.prom, which node_exporter then serves on /metrics with everything else:
+
+  pve_guest_info{vmid, name, type, node, status} 1    type: qemu | lxc
+  pve_guest_up{vmid}                  1 running, 0 otherwise
+  pve_guest_onboot{vmid}              1 if the guest starts at boot
+  pve_guest_cpu_ratio{vmid}           CPU use, share of its own vCPUs (0-1)
+  pve_guest_cpus{vmid}                vCPUs
+  pve_guest_memory_bytes{vmid}        memory in use
+  pve_guest_memory_max_bytes{vmid}    memory assigned
+  pve_guest_uptime_seconds{vmid}
+
+TEXTFILE_DIR overrides the folder (default: Debian's /var/lib/prometheus/node-exporter).
+"""
+import json
+import os
+import subprocess
+
+TEXTFILE_DIR = os.environ.get("TEXTFILE_DIR", "/var/lib/prometheus/node-exporter")
+
+
+def pvesh(path, *args):
+    out = subprocess.run(["pvesh", "get", path, *args, "--output-format", "json"],
+                         check=True, capture_output=True, text=True, timeout=30).stdout
+    return json.loads(out)
+
+
+def label(value):
+    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def main():
+    guests = [g for g in pvesh("/cluster/resources", "--type", "vm") if not g.get("template")]
+    metrics = {
+        "info": ("gauge", "Guest name, type (qemu or lxc), node and status"),
+        "up": ("gauge", "1 if the guest is running"),
+        "onboot": ("gauge", "1 if the guest starts at boot"),
+        "cpu_ratio": ("gauge", "CPU use as a share of the guest's vCPUs"),
+        "cpus": ("gauge", "vCPUs assigned"),
+        "memory_bytes": ("gauge", "Memory in use"),
+        "memory_max_bytes": ("gauge", "Memory assigned"),
+        "uptime_seconds": ("gauge", "Seconds since the guest started"),
+    }
+    rows = {name: [] for name in metrics}
+    for g in sorted(guests, key=lambda g: g["vmid"]):
+        vmid, kind = g["vmid"], g.get("type", "")
+        try:  # onboot lives in the guest config, not in the resource list
+            onboot = int(pvesh(f"/nodes/{g['node']}/{kind}/{vmid}/config").get("onboot") or 0)
+        except Exception:
+            onboot = 0
+        key = f'vmid="{vmid}"'
+        rows["info"].append(f'{{{key},name="{label(g.get("name", ""))}",type="{label(kind)}",'
+                            f'node="{label(g.get("node", ""))}",status="{label(g.get("status", ""))}"}} 1')
+        rows["up"].append(f"{{{key}}} {1 if g.get('status') == 'running' else 0}")
+        rows["onboot"].append(f"{{{key}}} {onboot}")
+        rows["cpu_ratio"].append(f"{{{key}}} {float(g.get('cpu') or 0):.4f}")
+        rows["cpus"].append(f"{{{key}}} {int(g.get('maxcpu') or 0)}")
+        rows["memory_bytes"].append(f"{{{key}}} {int(g.get('mem') or 0)}")
+        rows["memory_max_bytes"].append(f"{{{key}}} {int(g.get('maxmem') or 0)}")
+        rows["uptime_seconds"].append(f"{{{key}}} {int(g.get('uptime') or 0)}")
+    text = []
+    for name, (kind, help_text) in metrics.items():
+        text += [f"# HELP pve_guest_{name} {help_text}", f"# TYPE pve_guest_{name} {kind}"]
+        text += [f"pve_guest_{name}{row}" for row in rows[name]]
+    # Atomic replace: node_exporter must never read a half-written file
+    path = os.path.join(TEXTFILE_DIR, "pve_guests.prom")
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(text) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
+if __name__ == "__main__":
+    main()

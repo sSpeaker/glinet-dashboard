@@ -20,6 +20,9 @@ services:
       GL_PASS: ""                 # router root password: set it in the app settings in CasaOS
       GL_USER: root
       UNSPLASH_ACCESS_KEY: ""     # optional: Unsplash API access key (collection rotation, photo location)
+      NPM_PASS: ""                # optional: Nginx Proxy Manager password for the npm widget (password_env: NPM_PASS)
+      HA_TOKEN: ""                # optional: Home Assistant long-lived access token for the homeassistant widget
+      AIO_PASS: ""                # optional: AIOStreams dashboard password for the aiostreams widget
       LUCI_PORT: "8080"
       ADGUARD_PORT: "3000"
       WAN_INTERFACE: wan
@@ -57,6 +60,15 @@ services:
         - container: UNSPLASH_ACCESS_KEY
           description:
             en_US: Optional Unsplash API access key - rotates Unsplash collections and adds the photo location
+        - container: NPM_PASS
+          description:
+            en_US: Optional Nginx Proxy Manager password, for the npm widget (password_env NPM_PASS)
+        - container: HA_TOKEN
+          description:
+            en_US: Optional Home Assistant long-lived access token, for the homeassistant widget (token_env HA_TOKEN)
+        - container: AIO_PASS
+          description:
+            en_US: Optional AIOStreams dashboard password, for the aiostreams widget (password_env AIO_PASS)
         - container: POLL_SECONDS
           description:
             en_US: Poll interval in seconds (5-60)

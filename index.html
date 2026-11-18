@@ -91,6 +91,8 @@ body:is(.bg-dark, .bg-light) :is(footer, #corner)::before {
               linear-gradient(transparent, #000 0.875rem, #000 calc(100% - 0.875rem), transparent);
   mask-composite: intersect;
 }
+/* The corner strip ends at the page edge: its blur must not stick out on the right (a horizontal scrollbar) */
+body:is(.bg-dark, .bg-light) #corner::before { right: 0; }
 body.bg-dark :is(footer, #corner)::before { background: rgb(13 18 32 / 0.08); }
 body.bg-light :is(footer, #corner)::before { background: rgb(238 241 246 / 0.08); }
 body:is(.bg-dark, .bg-light) #corner { padding: 0.125rem 0.375rem 0.125rem 0.75rem; border-radius: 0.5rem; }
@@ -143,7 +145,16 @@ section h2::after { content: ""; flex: 1; height: 1px; background: var(--line); 
 .name { font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub { font: 0.6875rem/1.4 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub { color: var(--accent); }
-.sub:empty::before { content: "\00a0"; }
+.sub { display: flex; justify-content: flex-end; min-width: 0; }  /* the value sits at the right of the second line */
+/* Second line of a tile: the widget's live value or the response time; it opens the service's info window */
+.tile-live { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font: 0.75rem/1.4 var(--body); font-variant-numeric: tabular-nums; }
+.tile-live.warning { color: var(--warning); }
+.tile-live.idle { opacity: 0.6; }
+.tile-live.critical { color: var(--critical); }
+/* A widget's value opens its details window */
+.tile-live[role="button"] { cursor: pointer; border-radius: 0.1875rem; }
+.tile-live[role="button"]:hover { color: var(--accent); text-decoration: underline dotted; text-underline-offset: 0.2em; }
+.tile-live[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Service icons; icon_dark replaces icon when the dark theme is active */
 .mark.has-icon { padding: 0.25rem; }
 /* Status dot in the top-right corner of the tile: green up, red down, grey until the first check */
@@ -181,10 +192,13 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .sdot.good { background: var(--good); }
 .sdot.warning { background: var(--warning); }
 .sdot.critical { background: var(--critical); }
-.live-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.6fr); gap: 0.75rem; }
-@media (max-width: 1100px) { .live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .card.dns { grid-column: 1 / -1; } }
+.live-grid { display: grid; grid-template-columns: var(--live-cols, minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.6fr)); gap: 0.75rem; }
+@media (max-width: 1100px) { .live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .live-grid > .wide { grid-column: 1 / -1; } }
+@media (min-width: 701px) { .srv-grid > .wide { grid-column: span 2; } }
 @media (max-width: 700px) { .live-grid { grid-template-columns: minmax(0, 1fr); } }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 0.75rem; padding: 0.75rem 0.875rem; display: grid; gap: 0.625rem; align-content: start; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 0.75rem; padding: 0.75rem 0.875rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; align-content: start; min-width: 0; }
+/* Narrow cards (four in a row): the score text may wrap instead of pushing the card wider */
+.score > * { min-width: 0; }
 .card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.625rem; }
 .card-head h3 { margin: 0 auto 0 0; font: 600 0.875rem/1.2 var(--body); }
 .stale { font-size: 0.75rem; color: var(--muted); display: inline-flex; align-items: center; gap: 0.3125rem; }
@@ -193,8 +207,8 @@ footer .source[href]:hover { color: var(--accent); text-decoration: underline; }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn:disabled { opacity: 0.55; cursor: default; }
 /* History window */
-#history, #devices, #vpn, #settings { width: min(64rem, 94vw); max-height: 90vh; padding: 0; border: 1px solid var(--line); border-radius: 0.875rem; background: var(--surface); color: var(--fg); box-shadow: 0 1rem 3rem rgb(0 0 0 / 0.35); }
-#history::backdrop, #devices::backdrop, #vpn::backdrop, #settings::backdrop { background: rgb(0 0 0 / 0.5); }
+#history, #devices, #vpn, #settings, #card-dialog { width: min(64rem, 94vw); max-height: 90vh; padding: 0; border: 1px solid var(--line); border-radius: 0.875rem; background: var(--surface); color: var(--fg); box-shadow: 0 1rem 3rem rgb(0 0 0 / 0.35); }
+#history::backdrop, #devices::backdrop, #vpn::backdrop, #settings::backdrop, #card-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 #vpn { width: min(30rem, 94vw); }
 /* Devices opens at the top: filtering shrinks the table downwards, the header with the filter stays put */
 #devices { margin-top: 5vh; }
@@ -415,6 +429,47 @@ details th { color: var(--muted); font-weight: 500; }
 .ql-letter { display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font: 700 0.625rem/1 var(--body); text-transform: uppercase; border-radius: 0.25rem; }
 /* Quick links editor */
 #settings { width: min(46rem, 94vw); margin-top: 5vh; }
+#card-dialog { margin-top: 5vh; }
+/* Plugin cards: same card look, compact; head = status dot, title (links to the service), stale, details */
+.srv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr)); gap: 0.75rem; }
+.srv-card { gap: 0.5rem; }
+.srv-card .card-head h3 { display: flex; align-items: center; gap: 0.4375rem; min-width: 0; }
+.srv-card .card-head h3 a { color: inherit; text-decoration: none; }
+.srv-card .card-head h3 a:hover { color: var(--accent); }
+.srv-card { grid-template-rows: auto minmax(0, 1fr); }
+/* The body fills the card (the row is as tall as its tallest card) and spreads its parts evenly over it */
+.srv-body { display: flex; flex-direction: column; justify-content: space-between; gap: 0.5rem; min-width: 0; }
+.srv-line { margin: 0; color: var(--muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srv-warn { color: var(--warning); }
+.srv-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+.srv-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.srv-table td { padding: 0.3125rem 0.5rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.srv-table td:first-child { white-space: normal; }
+.info-table thead { display: none; }
+/* Charts in a details window: side by side, each with a small title */
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr)); gap: 1rem 1.5rem; align-items: end; }  /* chart bottoms line up, with or without a legend */
+.chart-block { display: grid; gap: 0.375rem; min-width: 0; align-content: start; }
+.chart-title { font-size: 0.8125rem; color: var(--muted); }
+/* Section title inside a details window (h.heading); .node-h is its older name */
+.srv-h, .node-h { margin: 0.5rem 0 0; font: 600 0.875rem var(--body); }
+.hist-body > .srv-h:first-child { margin-top: 0; }
+.history-block { display: grid; gap: 0.625rem; }
+.srv-h-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; margin-top: 0.5rem; }
+.srv-h-row .srv-h { margin: 0; }
+.chart-wait { margin: 0; min-height: 4.5rem; display: grid; place-items: center; color: var(--muted); font-size: 0.75rem; border: 1px dashed var(--line); border-radius: 0.5rem; }
+.range-switch { display: flex; gap: 0.25rem; }
+.range-switch button { font: 500 0.6875rem/1 var(--body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.25rem 0.5625rem; cursor: pointer; }
+.range-switch button:hover { color: var(--fg); }
+.range-switch button[aria-pressed="true"] { color: var(--fg); background: var(--chip); border-color: var(--accent); }
+.info-table td:first-child { width: 9rem; color: var(--muted); }
+.info-table a { color: var(--accent); }
+.srv-meter { display: inline-flex; align-items: center; gap: 0.375rem; }
+.srv-spark { display: inline-block; vertical-align: middle; line-height: 0; }
+.srv-spark path { fill: none; stroke-width: 1.5px; stroke-linejoin: round; stroke-linecap: round; }
+.srv-spark .ln.s1 { stroke: var(--s1); }
+.srv-spark .ln.s2 { stroke: var(--s2); }
+.srv-meter i { position: relative; display: inline-block; width: 4rem; height: 0.3125rem; border-radius: 0.1875rem; background: var(--line); overflow: hidden; }
+.srv-meter i b { position: absolute; inset: 0 auto 0 0; background: var(--s1); }
 .set-form { display: grid; gap: 0.5rem; }
 .set-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .set-actions .spacer { flex: 1; }
@@ -442,10 +497,13 @@ details th { color: var(--muted); font-weight: 500; }
 .btn.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.1); }
 #ql-add { justify-self: start; }
 @media (max-width: 560px) { .ql-row { grid-template-columns: 1rem 1.125rem 1rem minmax(0, 1fr) auto; } .ql-row .ql-url { grid-column: 4 / -1; } }
-/* Speed test result: always one line, result on the left, age on the right */
+/* Speed test result: one line, speeds on the left, bufferbloat and age on the right (in a narrow card the age is in the hint) */
 .st-line { display: flex; justify-content: space-between; gap: 0.75rem; white-space: nowrap; }
 .st-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.st-bb { flex: none; margin-left: auto; }  /* bufferbloat grade at the right end */
 .st-when { flex: none; }
+[data-card="quality"] { container-type: inline-size; }
+@container (max-width: 24rem) { .st-when { display: none; } }
 
 @media (prefers-reduced-motion: reduce) { .tile, .ql-item, #theme-toggle, .corner-link { transition: none; } .tile:hover, .ql-item:hover { transform: none; } }
 </style>
@@ -485,7 +543,7 @@ details th { color: var(--muted); font-weight: 500; }
       <button type="button" class="btn" id="history-open" aria-haspopup="dialog">History</button>
     </div>
     <div class="live-grid">
-      <article class="card">
+      <article class="card" data-card="internet">
         <div class="card-head">
           <h3>Internet</h3>
           <span class="stale" data-stale="wan" hidden>stale</span>
@@ -508,7 +566,7 @@ details th { color: var(--muted); font-weight: 500; }
         <p class="note" id="wan-msg" role="status" hidden></p>
       </article>
 
-      <article class="card">
+      <article class="card" data-card="quality">
         <div class="card-head">
           <h3>Network quality</h3>
           <span class="stale" data-stale="quality" hidden>stale</span>
@@ -537,10 +595,10 @@ details th { color: var(--muted); font-weight: 500; }
           <strong id="nq-loss">–</strong>
           <div class="bars-axis"><span>30 min ago</span><span>now</span></div>
         </div>
-        <p class="note st-line" id="nq-speedtest" hidden><span class="st-text" id="st-text"></span><span class="st-when" id="st-when"></span></p>
+        <p class="note st-line" id="nq-speedtest" hidden><span class="st-text" id="st-text"></span><span class="st-bb" id="st-bb"></span><span class="st-when" id="st-when"></span></p>
       </article>
 
-      <article class="card dns">
+      <article class="card dns" data-card="dns">
         <div class="card-head">
           <h3 id="dns-title">DNS · AdGuard Home</h3>
           <span class="stale" data-stale="dns" hidden>stale</span>
@@ -568,6 +626,12 @@ details th { color: var(--muted); font-weight: 500; }
         </div>
       </article>
     </div>
+  </section>
+
+  <!-- Plugin cards (cards/<type>/card.js), in the order of cards: in services.yaml -->
+  <section id="servers" hidden aria-labelledby="servers-title">
+    <div class="section-head"><h2 id="servers-title">Servers</h2></div>
+    <div class="srv-grid" id="srv-grid"></div>
   </section>
 
   <section aria-labelledby="services-title">
@@ -629,6 +693,17 @@ details th { color: var(--muted); font-weight: 500; }
   </div>
 </dialog>
 <!-- VPN window: the router's VPN client tunnels with an on/off switch each (vpn-client.set_tunnel) -->
+<!-- Details of a plugin card (its details() draws the body) -->
+<dialog id="card-dialog" aria-labelledby="card-dialog-title">
+  <div class="hist-head">
+    <h2 id="card-dialog-title"></h2>
+    <button type="button" class="icon-btn" id="card-dialog-close" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="hist-body" id="card-dialog-body"></div>
+</dialog>
+
 <!-- Settings: everything changed from the page (quick links, wallpaper), kept by the collector in data/ -->
 <dialog id="settings" aria-labelledby="settings-title">
   <div class="hist-head">
@@ -767,6 +842,8 @@ const filterInput = document.getElementById("filter");
 
 function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+// All services in config order: the info window of a tile looks its service up here (data-svc)
+let SERVICES = [];
 function render(filter) {
   const f = filter.trim().toLowerCase();
   let shown = 0;
@@ -775,15 +852,15 @@ function render(filter) {
     shown += items.length;
     if (!items.length) return "";
     return `<section class="group"><h3>${esc(g.name)}</h3>${items.map(i => `
-      <a class="tile" href="${esc(i.url)}" data-addr="${esc(i.addr)}" data-check="${esc(i.check || "")}">
+      <a class="tile" href="${esc(i.url)}" data-svc="${SERVICES.indexOf(i)}" data-addr="${esc(i.addr)}" data-check="${esc(i.check || "")}" data-widget="${esc(i.widget ? i.widget.id : "")}">
         <span class="mark${i.icon ? " has-icon" : ""}" aria-hidden="true">${markHtml(i)}</span>${i.check ? '<i class="health" aria-hidden="true"></i>' : ""}
         <span class="name">${esc(i.name)}</span>
-        <span class="sub">${esc(i.host)}</span>${i.addr ? `<span class="sr-only">, ${esc(i.addr)}</span>` : ""}${i.check ? '<span class="sr-only health-text"></span>' : ""}
+        <span class="sub"><span class="tile-live" role="button" tabindex="0" data-hint="Details"></span></span>${i.addr ? `<span class="sr-only">, ${esc(i.addr)}</span>` : ""}${i.check ? '<span class="sr-only health-text"></span>' : ""}
       </a>`).join("")}</section>`;
   }).join("");
   empty.hidden = shown > 0 || !GROUPS.length;
   if (tipOwner && tipOwner.classList.contains("tile")) hideTip();  // its tile was just replaced
-  if (typeof lastSnap !== "undefined" && lastSnap) renderHealth(lastSnap);
+  if (typeof lastSnap !== "undefined" && lastSnap) { renderHealth(lastSnap); renderTiles(lastSnap); }
 }
 
 function markHtml(i) {
@@ -831,10 +908,9 @@ document.addEventListener("pointerout", e => { const t = e.target.closest("[data
 document.addEventListener("focusin", e => { const t = e.target.closest("[data-hint]"); if (t) hintTip(t); });
 document.addEventListener("focusout", e => { if (tipOwner && tipOwner.dataset && "hint" in tipOwner.dataset) hideTip(); });
 
-// Tile tooltip: only the LAN address (no tooltip without one), shown below the tile on hover or keyboard focus
+// Tile tooltip: only while the service is down (since when, why); its addresses are in the info window
 function tileTip(tile) {
   const rows = [];
-  if (tile.dataset.addr) rows.push({ text: tile.dataset.addr });
   if (tile.dataset.down) rows.push({ value: tile.dataset.down, label: tile.dataset.reason || "" });
   if (!rows.length) return hideTip();
   const r = tile.getBoundingClientRect(), pad = 14 * scale();
@@ -1048,6 +1124,10 @@ function renderWorldClock(d) {
 }
 tick(); setInterval(tick, 10000);
 
+// Service widgets from the config (see renderTiles): details-window info and plugin type per widget id
+let widgetInfo = {}, tileResponseTime = true;
+const cardTypeOf = {};
+
 // Load services.yaml via the collector; re-check every 30 s and re-render only when it changed
 let configText = null;
 async function loadConfig() {
@@ -1062,8 +1142,13 @@ async function loadConfig() {
     if (!config || text === configText) return;
     configText = text;
     GROUPS = config.groups;
+    SERVICES = GROUPS.flatMap(g => g.services);
+    widgetInfo = config.widget_info || {};
+    for (const g of config.groups) for (const sv of g.services) if (sv.widget) cardTypeOf[sv.widget.id] = sv.widget.type;
+    tileResponseTime = config.tile_response_time !== false;
     speedtestSchedule = config.speedtest && config.speedtest.schedule;
     applyPage(config.page);
+    setupCards(config.cards, config.card_assets);
     document.getElementById("net-line").textContent = [config.network.subnet, config.network.label].filter(Boolean).join(" · ");
     render(filterInput.value);
   } catch (e) {
@@ -1191,10 +1276,20 @@ function mount(host, state) {
 }
 
 // --- WAN rate: two 2px lines, crosshair tooltip ----------------------------
-function lineChart(host, series, fmt, secondsPerPoint) {
-  const k = scale(), w = Math.max(200, host.clientWidth), h = 72 * k, top = 14 * k, bottom = 14 * k, pad = 6 * k;
+// "29 s ago", "12 min ago": time labels for the chart axis and its tooltip
+const agoLabel = s => (s < 120 ? `${Math.round(s)} s ago` : s < 7200 ? `${Math.round(s / 60)} min ago`
+  : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`);
+// opts.max: a fixed top of the scale (e.g. 100 for %); without it the scale fits the data
+// opts.height: chart height in px at the 16px design size (default 72)
+function lineChart(host, series, fmt, secondsPerPoint, opts = {}) {
+  // A missing point (null) is drawn at the last known value, never as 0
+  series = series.map(sr => {
+    let last = sr.values.find(v => v != null) ?? 0;
+    return { ...sr, values: sr.values.map(v => (v == null ? last : (last = v))) };
+  });
+  const k = scale(), w = Math.max(200, host.clientWidth), h = (opts.height || 72) * k, top = 14 * k, bottom = 14 * k, pad = 6 * k;
   const n = Math.max(2, ...series.map(s => s.values.length));
-  const max = niceMax(Math.max(1, ...series.flatMap(s => s.values)));
+  const max = opts.max || niceMax(Math.max(1, ...series.flatMap(s => s.values)));
   const xOf = i => pad + (w - 2 * pad) * i / (n - 1);
   const yOf = v => top + (h - top - bottom) * (1 - v / max);
   const base = Math.round(yOf(0)) + 0.5, cap = Math.round(yOf(max)) + 0.5;
@@ -1202,7 +1297,7 @@ function lineChart(host, series, fmt, secondsPerPoint) {
     + `<line class="grid-line" x1="0" x2="${w}" y1="${cap}" y2="${cap}"/>`
     + `<line class="grid-line" x1="0" x2="${w}" y1="${base}" y2="${base}"/>`
     + `<text class="axis" x="0" y="${cap - 4 * k}">${joinPair(fmt(max))}</text>`
-    + `<text class="axis" x="0" y="${h - 3 * k}">${(n - 1) * secondsPerPoint} s ago</text>`
+    + `<text class="axis" x="0" y="${h - 3 * k}">${agoLabel((n - 1) * secondsPerPoint)}</text>`
     + `<text class="axis" x="${w}" y="${h - 3 * k}" text-anchor="end">now</text>`
     + `<line class="cross" x1="0" x2="0" y1="${top - 4 * k}" y2="${base}" visibility="hidden"/>`;
   for (const s of series) {
@@ -1219,7 +1314,7 @@ function lineChart(host, series, fmt, secondsPerPoint) {
     n,
     indexAt: x => Math.round((x - pad) / (w - 2 * pad) * (n - 1)),
     xOf,
-    title: i => i === n - 1 ? "now" : `${(n - 1 - i) * secondsPerPoint} s ago`,
+    title: i => i === n - 1 ? "now" : agoLabel((n - 1 - i) * secondsPerPoint),
     rows: i => series.map(s => ({ key: s.key, value: valueAt(s, i) == null ? "–" : joinPair(fmt(valueAt(s, i))), label: s.label })),
     highlight: i => {
       cross.setAttribute("visibility", i == null ? "hidden" : "visible");
@@ -1386,11 +1481,12 @@ function renderSpeedtest(snap) {
   btn.title = speedtestSchedule ? `Also runs automatically every day at ${speedtestSchedule} (router time)` : "";
   // While running, download/upload hold the current speed (updated every second); 0 or -1 means the phase has not started
   const mbps = v => v == null || v <= 0 ? "…" : Math.round(v);
-  let text = null, when = "", title = "";
+  let text = null, when = "", title = "", bb = "";
   if (speedtestMsg) text = speedtestMsg;
   else if (running) text = `Running… ↓ ${mbps(t.download)} · ↑ ${mbps(t.upload)} Mbps`;
   else if (t.state === "success" && t.download != null) {
-    text = `↓ ${mbps(t.download)} · ↑ ${mbps(t.upload)} Mbps` + (t.bufferbloat ? ` · bufferbloat ${t.bufferbloat}` : "");
+    text = `↓ ${mbps(t.download)} · ↑ ${mbps(t.upload)} Mbps`;
+    bb = t.bufferbloat ? `bufferbloat ${t.bufferbloat}` : "";
     // finished_at is recorded by the collector; null = the test ran before it started watching
     when = t.finished_at ? `tested ${ago(snap.now - t.finished_at)}` : "tested earlier";
     title = t.finished_at
@@ -1398,8 +1494,9 @@ function renderSpeedtest(snap) {
       : "The test ran before the collector started, so its time is unknown";
   } else if (t.state === "failed") text = "Last speed test failed";
   note.hidden = !text;
-  note.title = title;
+  if (title) note.dataset.hint = [when, title].filter(Boolean).join("\n"); else delete note.dataset.hint;
   $("st-text").textContent = text || "";
+  $("st-bb").textContent = bb;
   $("st-when").textContent = when;
 }
 
@@ -1548,10 +1645,10 @@ function setLiveState(status, text) {
 let lastSnap = null;
 function renderLive(snap) {
   $("live").hidden = false;
-  for (const fn of [renderWan, renderQuality, renderSpeedtest, renderDns, renderRouter, renderAlerts, renderHealth, renderTopDevices, renderDevices, renderVpn]) {
+  for (const fn of [renderWan, renderQuality, renderSpeedtest, renderDns, renderRouter, renderAlerts, renderHealth, renderTiles, renderTopDevices, renderDevices, renderVpn, renderCards]) {
     try { fn(snap); } catch (e) { console.error(fn.name, e); }
   }
-  const stale = [...document.querySelectorAll("[data-stale]")].some(e => !e.hidden);
+  const stale = [...document.querySelectorAll("[data-stale]")].some(e => !e.hidden && !e.closest("[data-card]").hidden);  // switched-off cards do not count
   setLiveState(stale ? "warning" : "good", stale ? "Partial" : "Live");
 }
 
@@ -2261,6 +2358,475 @@ $("ql-form").addEventListener("submit", async e => {
   } finally {
     $("ql-save").disabled = false;
   }
+});
+
+// ---------------------------------------------------------------------------
+// Cards: the router cards (internet, quality, dns) are switched on and off by cards: in the config;
+// every other card is a plugin (cards/<type>/card.js) drawn in the Servers section. See cards/README.md.
+// ---------------------------------------------------------------------------
+const cardImpls = {}, cardLoaded = {};
+let cardList = [], cardOpen = null;
+window.Cards = {
+  register(type, impl) { cardImpls[type] = impl; if (lastSnap) renderLive(lastSnap); },
+};
+
+// The first cards of cards: form the top row (three, or four when none is wide), the rest the Servers row
+const pluginArticles = {};
+function cardArticle(card) {
+  if (card.builtin) return document.querySelector(`[data-card="${card.type}"]`);
+  return pluginArticles[card.id] || (pluginArticles[card.id] = cardFrame(card));
+}
+function setupCards(cards, assets) {
+  cardList = cards || [];
+  const top = cardList.slice(0, 3), live = document.querySelector(".live-grid"), servers = $("srv-grid");
+  for (const type of ["internet", "quality", "dns"]) {
+    document.querySelector(`[data-card="${type}"]`).hidden = !cardList.some(c => c.builtin && c.type === type);
+  }
+  for (const [id, article] of Object.entries(pluginArticles)) {  // cards taken out of the config
+    if (!cardList.some(c => c.id === id)) { article.remove(); delete pluginArticles[id]; }
+  }
+  // Top row: the first three cards, plus a fourth when none of them is wide (e.g. internet, quality, node, qbittorrent)
+  const isWide = c => (c.builtin ? c.type === "dns" : Boolean(c.wide));
+  const topCount = cardList.slice(0, 4).length === 4 && !cardList.slice(0, 4).some(isWide) ? 4 : 3;
+  top.splice(0, top.length, ...cardList.slice(0, topCount));
+  cardList.forEach((card, i) => {
+    const article = cardArticle(card);
+    article.classList.toggle("wide", isWide(card));
+    (i < topCount ? live : servers).append(article);  // in config order
+  });
+  live.hidden = !top.length;
+  $("servers").hidden = cardList.length <= top.length;
+  live.style.setProperty("--live-cols", top.map(c => cardArticle(c).classList.contains("wide") ? "minmax(0, 1.6fr)" : "minmax(0, 1fr)").join(" "));
+  for (const [type, a] of Object.entries(assets || {})) {
+    if (a.css && !cardLoaded[a.css]) {
+      cardLoaded[a.css] = true;
+      document.head.append(Object.assign(document.createElement("link"), { rel: "stylesheet", href: a.css }));
+    }
+    if (a.js && !cardLoaded[a.js]) {
+      cardLoaded[a.js] = true;
+      const script = Object.assign(document.createElement("script"), { src: a.js });
+      script.onerror = () => { cardImpls[type] = { failed: true }; if (lastSnap) renderCards(lastSnap); };
+      document.head.append(script);
+    }
+  }
+  if (lastSnap) renderLive(lastSnap);  // router cards may have changed width: redraw their charts too
+}
+
+function cardFrame(card) {
+  const article = el("article", "card srv-card");
+  article.dataset.id = card.id;
+  const head = el("div", "card-head"), h3 = el("h3"), more = el("button", "icon-btn");
+  h3.append(el("i", "sdot"), el("a"));
+  more.type = "button"; more.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>`; more.dataset.hint = "Details"; more.setAttribute("aria-label", "Details");
+  more.addEventListener("click", () => openCardDetails(card.id));
+  const stale = el("span", "stale", "stale");
+  stale.hidden = true;
+  head.append(h3, stale, more);
+  article.append(head, el("div", "srv-body"));
+  return article;
+}
+
+function renderCards(snap) {
+  cardList.filter(c => !c.builtin).forEach(card => {
+    const article = cardArticle(card), impl = cardImpls[card.type], raw = snap.sources[`card:${card.id}`];
+    const src = source(snap, `card:${card.id}`, card.interval * 3 + 10);
+    const link = article.querySelector("h3 a");
+    link.textContent = card.title;
+    if (card.url) link.href = card.url; else link.removeAttribute("href");
+    article.querySelector(".card-head .sdot").className = `sdot ${src.data ? (src.stale ? "warning" : "good") : raw && raw.error ? "critical" : ""}`;
+    const stale = article.querySelector(".stale");
+    stale.hidden = !(src.data && src.stale);
+    stale.dataset.hint = src.stale || "";
+    article.querySelector(".card-head .icon-btn").hidden = !(impl && impl.details && src.data);
+    const body = article.querySelector(".srv-body");
+    body.replaceChildren();
+    if (!impl) body.append(el("p", "srv-line", "Loading…"));
+    else if (impl.failed) body.append(el("p", "srv-line srv-warn", `cards/${card.type}/card.js did not load`));
+    else if (!src.data) body.append(el("p", "srv-line", src.stale || "Waiting for the first data…"));
+    else {
+      const draws = [];
+      try { impl.render(body, src.data, cardHelpers(card, draws), card); draws.forEach(f => f()); }
+      catch (e) { console.error(card.id, e); body.replaceChildren(el("p", "srv-line srv-warn", `Card error: ${e.message}`)); }
+    }
+  });
+  renderCardDetails(snap);
+}
+
+function openCardDetails(id) {
+  cardOpen = id;
+  $("card-dialog").scrollTop = 0;
+  $("card-dialog").showModal();
+  $("card-dialog").append(tip);  // the modal dialog sits in the top layer: keep the tooltip above it
+  renderCardDetails(lastSnap);
+}
+// The window is redrawn on every refresh: keep where the reader scrolled to (and the body's height while it
+// is rebuilt, so the scroll position is not clamped to the top in between)
+function renderCardDetails(snap) {
+  if (!cardOpen || !$("card-dialog").open || !snap) return;
+  const dialog = $("card-dialog"), body = $("card-dialog-body"), top = dialog.scrollTop;
+  body.style.minHeight = `${body.offsetHeight}px`;
+  try { drawCardDetails(snap); } finally {
+    body.style.minHeight = "";
+    dialog.scrollTop = top;
+  }
+}
+// A plugin card's details come from /api/card: its data plus what the plugin adds for this window (lists,
+// logs). Fetched while the window is open, at most every 4 s; /api/status stays small for everyone else.
+let cardFull = { id: null, data: null, error: null, at: 0, loading: false };
+function fullCardData(id) {
+  if (cardFull.id !== id) cardFull = { id, data: null, error: null, at: 0, loading: false };
+  const mine = cardFull;
+  if (!mine.loading && Date.now() - mine.at > 4000) {
+    mine.loading = true;
+    fetch(`api/card?id=${encodeURIComponent(id)}`, { cache: "no-store" })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(j => { mine.data = j.data; mine.error = j.error; })
+      .catch(e => { mine.error = e.message; })
+      .finally(() => {
+        mine.loading = false; mine.at = Date.now();
+        if (cardFull === mine && lastSnap) renderCardDetails(lastSnap);
+      });
+  }
+  return mine;
+}
+// Run a plugin's details() into `body`; "Loading…" or the card's error while there is no data
+function drawPluginDetails(body, card, impl, append) {
+  const full = fullCardData(card.id);
+  if (!full.data) {
+    const note = el("p", "note", full.at ? (full.error || "No data yet.") : "Loading…");
+    if (append) body.append(note); else body.replaceChildren(note);
+    return;
+  }
+  if (!append) body.replaceChildren();
+  const draws = [];
+  try { impl.details(body, full.data, cardHelpers(card, draws, "details:"), card); draws.forEach(f => f()); }
+  catch (e) { console.error(card.id, e); body.append(el("p", "note", `Card error: ${e.message}`)); }
+}
+function drawCardDetails(snap) {
+  if (cardOpen.startsWith("tile:")) { renderTileInfo(snap, SERVICES[Number(cardOpen.slice(5))]); return; }
+  const card = cardList.find(c => c.id === cardOpen), impl = card && cardImpls[card.type];
+  if (!card || !impl || !impl.details) { $("card-dialog").close(); return; }
+  $("card-dialog-title").textContent = card.title;
+  drawPluginDetails($("card-dialog-body"), card, impl, false);
+}
+$("card-dialog-close").addEventListener("click", () => $("card-dialog").close());
+$("card-dialog").addEventListener("close", () => { cardOpen = null; hideTip(); document.body.append(tip); });
+$("card-dialog").addEventListener("click", e => { if (e.target === $("card-dialog")) $("card-dialog").close(); });
+
+// --- Charts for plugins ------------------------------------------------------------------------------
+// h.chart(name, series, {step, max, format, height}): the router cards' line chart (crosshair + tooltip) from
+// values the card already has: series = [{key: "s1" | "s2", label, values}], oldest first, one per `step` s.
+// h.history([{title, series: [{key, label, metric}], format, max}]): the "History" block of a details window:
+// charts loaded from the metrics store (/api/metrics) for the period chosen with its switch.
+// Chart hosts are kept per card and name, so a hovered point survives the refresh.
+const cardChartHosts = {};
+let detailsRange = "30m";
+const RANGE_LABELS = { "30m": "30 min", "2h": "2 h", "10h": "10 h", "24h": "24 h", "7d": "7 days", "30d": "30 days" };
+const metricCache = {};
+function metricValues(names, range) {
+  const key = `${range}|${names.join(",")}`, entry = metricCache[key], ttl = range === "30m" ? 20000 : 60000;
+  if (!entry || (!entry.loading && Date.now() - entry.at > ttl)) {
+    metricCache[key] = { ...(entry || {}), loading: true };
+    fetch(`api/metrics?range=${range}&series=${encodeURIComponent(names.join(","))}`, { cache: "no-store" })
+      .then(r => r.json()).then(j => { metricCache[key] = { at: Date.now(), step: j.step, series: j.series || {} }; })
+      .catch(() => { metricCache[key] = { ...(entry || {}), at: Date.now(), loading: false }; })  // keep what was shown
+      .finally(() => { if (lastSnap) renderCardDetails(lastSnap); });
+  }
+  return entry && entry.series ? entry : null;
+}
+function rangeSwitch() {
+  const box = el("div", "range-switch");
+  box.setAttribute("role", "group"); box.setAttribute("aria-label", "Period");
+  for (const [key, label] of Object.entries(RANGE_LABELS)) {
+    const b = el("button", null, label);
+    b.type = "button"; b.setAttribute("aria-pressed", String(key === detailsRange));
+    b.addEventListener("click", () => { detailsRange = key; if (lastSnap) renderCardDetails(lastSnap); });
+    box.append(b);
+  }
+  return box;
+}
+function historyBlock(owner, draws, charts) {
+  const box = el("div", "history-block"), head = el("div", "srv-h-row"), grid = el("div", "chart-grid");
+  head.append(el("h3", "srv-h", "History"), rangeSwitch());
+  for (const c of charts.filter(c => c.series.length && c.series.every(x => x.metric))) {
+    const block = el("div", "chart-block");
+    block.append(el("div", "chart-title", c.title));
+    if (c.series.length > 1) block.append(CardHelp.legend(c.series.map(x => [x.key, x.label])));
+    const got = metricValues(c.series.map(x => x.metric), detailsRange);
+    const cols = got ? c.series.map(x => got.series[x.metric] || []) : [];
+    // From the first to the last recorded point: no line before the data existed, no drop at a slot still empty
+    const first = Math.min(Infinity, ...cols.map(col => { const i = col.findIndex(v => v != null); return i < 0 ? Infinity : i; }));
+    const end = 1 + Math.max(-1, ...cols.map(col => col.findLastIndex(v => v != null)));
+    if (!got) block.append(el("p", "chart-wait", "Loading…"));
+    else if (!Number.isFinite(first) || end - first < 2) block.append(el("p", "chart-wait", "No data for this period yet."));
+    else {
+      const id = `${owner}:${c.title}`, host = cardChartHosts[id] || (cardChartHosts[id] = el("div", "chart"));
+      host.setAttribute("role", "img");
+      host.setAttribute("aria-label", `${c.title} over the last ${RANGE_LABELS[detailsRange]}`);
+      const shown = c.series.map((x, i) => ({ ...x, values: cols[i].slice(first, end) }));
+      block.append(host);
+      draws.push(() => lineChart(host, shown, c.format || (v => [String(Math.round(v)), ""]), got.step, c));
+    }
+    grid.append(block);
+  }
+  box.append(head, grid);
+  return box;
+}
+function cardHelpers(card, draws, prefix = "") {
+  return {
+    ...CardHelp,
+    chart(name, series, opts = {}) {
+      const id = `${prefix}${card.id}:${name}`;
+      const host = cardChartHosts[id] || (cardChartHosts[id] = el("div", "chart"));
+      host.setAttribute("role", "img");
+      host.setAttribute("aria-label", `${series.map(s => s.label).join(" and ")} over the last ${agoLabel(Math.max(0, ...series.map(s => s.values.length - 1)) * (opts.step || 1)).replace(" ago", "")}`);
+      draws.push(() => lineChart(host, series, opts.format || (v => [String(Math.round(v)), ""]), opts.step || 1, opts));
+      return host;
+    },
+    history: charts => historyBlock(`${prefix}${card.id}`, draws, charts),
+  };
+}
+
+// Helpers handed to card plugins as `h`: the page's own formats and building blocks.
+// Numbers come back as [value, unit] pairs where a card shows them big (stats), joinable with " ".
+const CardHelp = {
+  el,
+  bytes: n => byteSize(n || 0),                                       // 1234567 → ["1.23", "MB"]
+  byteRate: n => { const [v, u] = byteSize(n || 0); return [v, `${u}/s`]; },  // bytes/s
+  bitRate: n => bitRate(n || 0),                                       // bytes/s shown as bits/s
+  duration: s => duration(s) || "–",                                   // 4500 → "1h 15m"
+  percent: f => `${Math.round((f || 0) * 100)} %`,
+  // A row of big numbers like the router cards: [["Label", [value, unit] or "text"], ...]
+  stats(items) {
+    const box = el("div", "stats");
+    for (const [label, value] of items) {
+      const stat = el("div", "stat"), v = el("div", "value");
+      if (Array.isArray(value)) v.append(String(value[0]), el("small", null, value[1] || "")); else v.append(value instanceof Node ? value : String(value));
+      stat.append(el("div", "label", label), v);
+      box.append(stat);
+    }
+    return box;
+  },
+  // One muted line; falsy parts are skipped, the rest joined with " · " (strings or elements)
+  line(parts) {
+    const p = el("p", "srv-line");
+    parts.filter(Boolean).forEach((part, i) => { if (i) p.append(" · "); p.append(part); });
+    return p;
+  },
+  warn(text, hint) { const s = el("span", "srv-warn", text); if (hint) s.dataset.hint = hint; return s; },
+  // A tiny trend line for a table cell (no axis); its hint names the latest value and the peak.
+  // opts: {key: "s1" | "s2", unit: "%", max: fixed top (default: the peak, at least 1)}
+  spark(values, opts = {}) {
+    const k = scale(), w = 72 * k, h = 18 * k, vals = values.map(v => v ?? 0), peak = Math.max(...vals, 0);
+    const max = opts.max || Math.max(1, peak), n = Math.max(2, vals.length);
+    const x = i => 1 + (w - 2) * i / (n - 1), y = v => h - 1.5 - (h - 3) * v / max;
+    const span = el("span", "srv-spark");
+    span.innerHTML = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path class="ln ${opts.key === "s2" ? "s2" : "s1"}" d="${vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("")}"/></svg>`;
+    const fmt = v => `${v < 10 ? v.toFixed(1) : Math.round(v)}${opts.unit ? " " + opts.unit : ""}`;
+    span.dataset.hint = `now ${fmt(vals[vals.length - 1] || 0)} · peak ${fmt(peak)}`;
+    span.setAttribute("role", "img");
+    span.setAttribute("aria-label", span.dataset.hint);
+    return span;
+  },
+  // Legend for a chart with two series, like the router cards: [["s1", "CPU"], ["s2", "RAM"]]
+  legend(items) {
+    const box = el("div", "legend");
+    for (const [key, label] of items) { const s = el("span"); s.append(el("i", `key ${key}`), label); box.append(s); }
+    return box;
+  },
+  note: text => el("p", "note", text),
+  heading: text => el("h3", "srv-h", text),   // a section title inside a details window
+  cut(text, max) { const s = el("span", null, text.length > max ? `${text.slice(0, max - 1)}…` : text); if (text.length > max) s.title = text; return s; },
+  meter(fraction, label) {
+    const m = el("span", "srv-meter"), bar = el("i"), fill = el("b");
+    fill.style.width = `${Math.max(0, Math.min(1, fraction || 0)) * 100}%`;
+    bar.append(fill); m.append(bar, label == null ? "" : label);
+    return m;
+  },
+  table(headers, rows) {
+    const t = el("table", "srv-table"), head = el("tr"), tbody = el("tbody");
+    headers.forEach(x => head.append(el("th", null, x)));
+    for (const row of rows) {
+      const tr = el("tr");
+      row.forEach(cell => { const td = el("td"); td.append(cell instanceof Node ? cell : String(cell ?? "")); tr.append(td); });
+      tbody.append(tr);
+    }
+    const thead = el("thead"); thead.append(head);
+    t.append(thead, tbody);
+    if (headers.every(x => !x)) t.classList.add("info-table");
+    return t;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Service widgets: a live value on the tile and a details window (button on the tile).
+// router / adguard come from the dashboard's own data; other types are card plugins with a tile() function.
+// Without a widget, a tile shows its response time from the status check (page.tile_response_time).
+// ---------------------------------------------------------------------------
+const BUILTIN_SOURCE = { router: "router", adguard: "dns" };
+// Alerts (computed by the collector with the thresholds from the config) that colour a built-in widget's tile
+const BUILTIN_ALERTS = { router: ["router_unreachable", "cpu_temp", "memory", "load"], adguard: ["dns_avg_ms", "dns_upstream_ms"] };
+
+function widgetData(snap, id) {
+  const type = id.startsWith("svc:") ? id.slice(4) : null;
+  const src = snap.sources[type ? BUILTIN_SOURCE[type] : `card:${id}`];
+  return src && src.data;
+}
+// Worst level among the alerts of one card or widget ("critical", "warning" or ""): tiles and cards take
+// their colour from the same alerts as the strip next to "Live", so the thresholds live in one place
+function alertLevel(snap, id) {
+  const alerts = ((snap.sources.alerts || {}).data) || [];
+  const mine = id.startsWith("svc:") ? a => (BUILTIN_ALERTS[id.slice(4)] || []).includes(a.id)
+    : a => a.id === `card:${id}` || a.id.startsWith(`card:${id}:`);
+  const levels = alerts.filter(mine).map(a => a.level);
+  return levels.includes("critical") ? "critical" : levels.includes("warning") ? "warning" : "";
+}
+
+function renderTiles(snap) {
+  const health = ((snap.sources.health || {}).data) || {};
+  for (const tile of root.querySelectorAll(".tile")) {
+    const live = tile.querySelector(".tile-live"), id = tile.dataset.widget;
+    let value = null;
+    if (id) {
+      const type = id.startsWith("svc:") ? id.slice(4) : (cardTypeOf[id] || ""), impl = cardImpls[type], data = widgetData(snap, id);
+      if (impl && impl.tile && data) {
+        try { value = impl.tile(data, CardHelp); } catch (e) { console.error(id, e); }
+      }
+    } else if (tileResponseTime && tile.dataset.check) {
+      const r = health[tile.dataset.check];
+      if (r && r.up && r.ms != null) value = `${Math.round(r.ms)} ms`;
+    }
+    const v = typeof value === "string" ? { text: value } : value || { text: "" };
+    const level = v.level != null ? v.level : id ? alertLevel(snap, id) : "";  // a tile() may set its own level
+    const waiting = !v.text && (id || (tileResponseTime && tile.dataset.check));  // its data is on the way
+    live.textContent = v.text || (waiting ? "" : "info");
+    live.className = `tile-live ${v.text ? level : "idle"}`;
+  }
+}
+// Clicking (or Enter / Space on) a tile's value opens its info window instead of following the tile link
+function tileDetails(e) {
+  const live = e.target.closest(".tile-live[role=button]");
+  if (!live || (e.type === "keydown" && e.key !== "Enter" && e.key !== " ")) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  openCardDetails(`tile:${live.closest(".tile").dataset.svc}`);
+  return true;
+}
+root.addEventListener("click", tileDetails);
+root.addEventListener("keydown", tileDetails);
+
+// Info window of a service tile: its address, LAN address, status and response time, its charts, then its
+// widget's details
+function renderTileInfo(snap, svc) {
+  if (!svc) { $("card-dialog").close(); return; }
+  $("card-dialog-title").textContent = svc.name;
+  const body = $("card-dialog-body"), h = CardHelp;
+  const link = el("a", null, svc.host || svc.url.replace(/^https?:\/\//, "").replace(/\/$/, ""));
+  link.href = svc.url;
+  const r = svc.check ? (((snap.sources.health || {}).data) || {})[svc.check] : null;
+  const status = !svc.check ? "not checked" : !r ? "checking…"
+    : r.up ? (r.since && snap.now - r.since >= 60 ? `up for ${ago(snap.now - r.since).replace(" ago", "")}` : "up")
+    : h.warn(`${snap.now - r.since < 60 ? "down just now" : `down for ${ago(snap.now - r.since).replace(" ago", "")}`}${r.error ? ` · ${r.error}` : ""}`);
+  const av = r && r.availability, pctTxt = v => (v == null ? "–" : `${(v * 100).toFixed(v >= 0.9995 ? 0 : 1)} %`);
+  const rows = [["Address", link], svc.addr && ["LAN", svc.addr], ["Status", status], r && r.up && r.ms != null && ["Response time", `${Math.round(r.ms)} ms`],
+                av && Object.keys(av).length && ["Availability", `24 h ${pctTxt(av["24h"])} · 7 days ${pctTxt(av["7d"])} · 30 days ${pctTxt(av["30d"])}`]].filter(Boolean);
+  body.replaceChildren(h.table(["", ""], rows));
+  const charts = serviceCharts(snap, svc, r);
+  if (charts.length) {
+    const draws = [];
+    body.append(historyBlock(`details:svc-${SERVICES.indexOf(svc)}`, draws, charts));
+    draws.forEach(f => f());
+  }
+  const w = svc.widget;
+  if (!w) return;
+  const type = w.builtin ? w.type : cardTypeOf[w.id], impl = type && cardImpls[type], card = { id: w.id, type, title: svc.name };
+  if (!impl || !impl.details) return;
+  if (!w.builtin) { drawPluginDetails(body, card, impl, true); return; }
+  const data = widgetData(snap, w.id);
+  if (!data) { body.append(h.note("Waiting for the first data…")); return; }
+  const draws = [];
+  try { impl.details(body, data, cardHelpers(card, draws, "details:"), card); draws.forEach(f => f()); }
+  catch (e) { console.error(w.id, e); body.append(el("p", "note", `Widget error: ${e.message}`)); }
+}
+
+// Charts of a service window: response time (every checked service), CPU / RAM of its container or guest
+// (from a node card), and the widget's own charts. All by metric name: historyBlock loads them.
+// The container or guest is the one named with container: / guest: in the config; without that, the one whose
+// name equals the service's (letters and digits only): the container name, the image name without registry
+// and tag, or the guest's host name without its domain.
+const norm = x => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+function linkedRuntime(snap, svc) {
+  const hosts = cardList.concat(Object.keys(widgetInfo).map(id => ({ id }))).filter(c => !c.builtin)
+    .map(card => (snap.sources[`card:${card.id}`] || {}).data).filter(Boolean);
+  const containers = hosts.flatMap(d => d.containers || []), guests = hosts.flatMap(d => d.guests || []);
+  const asContainer = c => c && { kind: "Container", item: c }, asGuest = g => g && { kind: g.type === "lxc" ? "LXC" : "VM", item: g };
+  if (svc.container) return asContainer(containers.find(c => c.name === svc.container)) || null;
+  if (svc.guest) return asGuest(guests.find(g => String(g.vmid) === svc.guest)) || null;
+  const want = norm(svc.name);
+  if (want.length < 3) return null;  // too short (or not Latin) to match by name: set container: / guest:
+  const image = c => norm(String(c.image || "").split("/").pop().split(":")[0]);
+  return asContainer(containers.find(c => norm(c.name) === want) || containers.find(c => image(c) === want))
+    || asGuest(guests.find(g => norm(String(g.name).split(".")[0]) === want)) || null;
+}
+function serviceCharts(snap, svc, health) {
+  const out = [];
+  if (health && health.series) {
+    out.push({ title: "Response time", series: [{ key: "s1", label: "Response", metric: health.series }], format: v => [Math.round(v), "ms"] });
+  }
+  const rt = linkedRuntime(snap, svc);
+  if (rt && rt.item.series) {
+    out.push({ title: `${rt.kind} CPU and memory`, format: v => [v < 10 ? v.toFixed(1) : Math.round(v), "%"],
+               series: [{ key: "s1", label: "CPU", metric: rt.item.series.cpu }, { key: "s2", label: "RAM", metric: rt.item.series.mem }] });
+  }
+  const w = svc.widget, type = w && (w.builtin ? w.type : cardTypeOf[w.id]);
+  const impl = type && cardImpls[type], data = w && widgetData(snap, w.id);
+  if (impl && impl.charts && data) {
+    try { out.push(...impl.charts(data, CardHelp)); } catch (e) { console.error(w.id, e); }
+  }
+  return out;
+}
+
+// Built-in widgets: only the parts for tiles and the details window
+Cards.register("router", {
+  // °C and % are different units: two charts
+  charts: d => (d.series ? [
+    { title: "CPU temperature", series: [{ key: "s1", label: "CPU", metric: d.series.temp }], format: v => [Math.round(v), "°C"] },
+    { title: "Memory", series: [{ key: "s2", label: "RAM", metric: d.series.mem }], max: 100, format: v => [Math.round(v), "%"] },
+  ] : []),
+  // Tile: temperature, memory and the 1-minute load average; its colour follows the router's alerts
+  tile: d => [d.cpu_temp != null && `${d.cpu_temp} °C`, d.memory_used != null && `RAM ${Math.round(d.memory_used * 100)} %`,
+              d.load && `load ${d.load[0].toFixed(2)}`].filter(Boolean).join(" · "),
+  details(body, d, h) {
+    body.append(h.stats([
+      ["CPU temp", d.cpu_temp == null ? "–" : [d.cpu_temp, "°C"]],
+      ["Memory", d.memory_used == null ? "–" : [Math.round(d.memory_used * 100), "%"]],
+      ["Load", d.load ? d.load[0].toFixed(2) : "–"],
+      ["Uptime", h.duration(d.uptime)],
+    ]), h.table(["", ""], [
+      ["Load (1 / 5 / 15 min)", d.load ? d.load.map(x => x.toFixed(2)).join(" / ") : "–"],
+      ["Clients", d.clients ?? "–"],
+      ["WAN", d.wan_online ? "online" : h.warn("offline")],
+      ["Hardware NAT", d.netnat_enabled ? "on (traffic counters can be low)" : "off"],
+    ]));
+  },
+});
+Cards.register("adguard", {
+  // Paused protection comes first: a paused filter still answers queries
+  tile: d => (d.protection_enabled === false ? { text: "protection paused", level: "warning" }
+    : d.queries ? `${Math.round(d.blocked / d.queries * 100)} % blocked` : ""),
+  details(body, d, h) {
+    body.append(h.stats([
+      ["Queries", String(cf.format(d.queries || 0))],
+      ["Blocked", d.queries ? [Math.round(d.blocked / d.queries * 100), "%"] : "–"],
+      ["Avg time", d.avg_ms == null ? "–" : [d.avg_ms.toFixed(1), "ms"]],
+      ["Protection", d.protection_enabled ? "on" : h.warn("paused")],
+    ]));
+    const ups = d.upstreams || [];
+    if (ups.length) body.append(h.heading("Upstreams"), h.table(["Server", "Answers", "Average"], ups.map(u => [u.name.replace(/:53$/, ""), nf.format(u.responses), `${u.avg_ms} ms`])));
+    const top = (title, rows) => rows && rows.length && body.append(h.heading(title), h.table(["Domain", "Queries"], rows.slice(0, 10).map(([dom, n]) => [h.cut(dom, 60), nf.format(n)])));
+    top("Top queried", d.top_queried);
+    top("Top blocked", d.top_blocked);
+  },
 });
 
 // Re-lay out charts on resize using the cached snapshot

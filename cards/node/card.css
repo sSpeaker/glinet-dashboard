@@ -1,0 +1,7 @@
+/* Server health card: one row per filesystem (status dot, mount point, free space), the network line */
+.node-disks { display: grid; gap: 0.25rem; }
+.node-disk { display: flex; align-items: center; gap: 0.4375rem; min-width: 0; font-size: 0.8125rem; }
+.node-disk .node-name { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-disk .node-sub { flex: none; margin-left: auto; color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+.node-net { font-size: 0.8125rem; }
+.node-net strong { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }

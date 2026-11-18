@@ -20,6 +20,10 @@ services:
       GL_USER: root
       # Optional: Unsplash API access key: rotates Unsplash collections, adds the photo location (and exact author name)
       UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
+      # Secrets of card / tile plugins: each plugin option *_env names one of these variables
+      NPM_PASS: ${NPM_PASS:-}
+      HA_TOKEN: ${HA_TOKEN:-}
+      AIO_PASS: ${AIO_PASS:-}
       LUCI_PORT: "8080"
       ADGUARD_PORT: "3000"
       WAN_INTERFACE: wan

@@ -8,3 +8,4 @@ config/
 __pycache__/
 *.pyc
 .DS_Store
+npm_password

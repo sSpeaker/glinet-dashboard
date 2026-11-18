@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Docker containers as Prometheus metrics, for node_exporter's textfile collector.
+
+Runs on the Docker host (as root, from docker-textfile.timer once a minute). Read-only: `docker ps`,
+`docker inspect` and `docker stats --no-stream`. Writes <textfile dir>/docker_containers.prom:
+
+  docker_container_info{name, image, state, health, restart_policy} 1
+  docker_container_up{name}                1 running, 0 otherwise
+  docker_container_exit_code{name}         last exit code (0 while running)
+  docker_container_restarts{name}          restarts done by Docker's restart policy
+  docker_container_started_seconds{name}   Unix time the container (last) started
+  docker_container_cpu_ratio{name}         CPU use as a share of the whole host (0-1)
+  docker_container_memory_bytes{name}      memory in use
+  docker_container_memory_limit_bytes{name}
+
+TEXTFILE_DIR overrides the folder (default /var/lib/node_exporter/textfile).
+"""
+import json
+import os
+import re
+import subprocess
+from datetime import datetime
+
+TEXTFILE_DIR = os.environ.get("TEXTFILE_DIR", "/var/lib/node_exporter/textfile")
+UNITS = {"b": 1, "kb": 1e3, "mb": 1e6, "gb": 1e9, "tb": 1e12, "kib": 1024, "mib": 1024 ** 2, "gib": 1024 ** 3, "tib": 1024 ** 4}
+
+
+def docker(*args):
+    return subprocess.run(["docker", *args], check=True, capture_output=True, text=True, timeout=60).stdout
+
+
+def size(text):
+    m = re.match(r"\s*([\d.]+)\s*([a-zA-Z]+)", text or "")
+    return float(m[1]) * UNITS.get(m[2].lower(), 1) if m else 0.0
+
+
+def started(value):
+    try:  # Docker writes nanoseconds: keep microseconds for fromisoformat
+        return datetime.fromisoformat(re.sub(r"(\.\d{6})\d+", r"\1", value.replace("Z", "+00:00"))).timestamp()
+    except (ValueError, AttributeError):
+        return 0
+
+
+def label(value):
+    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def main():
+    ids = docker("ps", "-aq").split()
+    inspected = json.loads(docker("inspect", *ids)) if ids else []
+    stats = {}
+    if any(c["State"]["Running"] for c in inspected):
+        for line in docker("stats", "--no-stream", "--format", "{{json .}}").splitlines():
+            s = json.loads(line)
+            stats[s["Name"].lstrip("/")] = s
+    cpus = os.cpu_count() or 1
+    metrics = {
+        "info": "Container name, image, state, health and restart policy",
+        "up": "1 if the container is running",
+        "exit_code": "Last exit code",
+        "restarts": "Restarts done by the restart policy",
+        "started_seconds": "Unix time the container last started",
+        "cpu_ratio": "CPU use as a share of the whole host",
+        "memory_bytes": "Memory in use",
+        "memory_limit_bytes": "Memory limit (the host memory without a limit)",
+    }
+    rows = {name: [] for name in metrics}
+    for c in sorted(inspected, key=lambda c: c["Name"]):
+        name, st = c["Name"].lstrip("/"), c["State"]
+        key = f'name="{label(name)}"'
+        health = (st.get("Health") or {}).get("Status", "none")
+        policy = (c.get("HostConfig") or {}).get("RestartPolicy", {}).get("Name", "") or "no"
+        rows["info"].append(f'{{{key},image="{label(c["Config"].get("Image", ""))}",state="{label(st.get("Status", ""))}",'
+                            f'health="{label(health)}",restart_policy="{label(policy)}"}} 1')
+        rows["up"].append(f"{{{key}}} {1 if st.get('Running') else 0}")
+        rows["exit_code"].append(f"{{{key}}} {int(st.get('ExitCode') or 0)}")
+        rows["restarts"].append(f"{{{key}}} {int(c.get('RestartCount') or 0)}")
+        rows["started_seconds"].append(f"{{{key}}} {started(st.get('StartedAt')):.0f}")
+        s = stats.get(name)
+        if s and st.get("Running"):
+            used, _, limit = s.get("MemUsage", "").partition("/")
+            rows["cpu_ratio"].append(f"{{{key}}} {float(s.get('CPUPerc', '0').rstrip('%') or 0) / 100 / cpus:.4f}")
+            rows["memory_bytes"].append(f"{{{key}}} {size(used):.0f}")
+            rows["memory_limit_bytes"].append(f"{{{key}}} {size(limit):.0f}")
+    text = []
+    for name, help_text in metrics.items():
+        text += [f"# HELP docker_container_{name} {help_text}", f"# TYPE docker_container_{name} gauge"]
+        text += [f"docker_container_{name}{row}" for row in rows[name]]
+    # Atomic replace: node_exporter must never read a half-written file
+    os.makedirs(TEXTFILE_DIR, exist_ok=True)
+    path = os.path.join(TEXTFILE_DIR, "docker_containers.prom")
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(text) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
+if __name__ == "__main__":
+    main()

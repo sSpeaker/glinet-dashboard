@@ -8,7 +8,10 @@ and serves them next to the start page:
   GET /api/config  -> start page configuration from config/services.yaml {"config", "error"}
   GET /assets/...  -> images from the config folder (background, icons/)
   GET /api/quote   -> quote of the day (ZenQuotes, FavQs as backup), cached on disk
-  GET /api/history -> speed tests, traffic per day and WAN/IP events (data/history.json)
+  GET /api/history -> speed tests, traffic per day and WAN/IP events (data/metrics.db)
+  GET /api/metrics?series=a,b&range=30m|2h|10h|24h|7d|30d -> time series from data/metrics.db for the charts
+  GET /cards/<type>/card.js|card.css -> the page side of a card plugin (cards/<type>/, see cards/README.md)
+  GET /api/card?id=<card id> -> one plugin card's data plus its details (lists, logs) for the details window
   GET /api/status  -> cached snapshot {"now", "interval", "sources": {name: {data, updated, error}}}
   POST /api/speedtest {"enable": true|false} -> start/stop the router speed test (network-quality.set_speedtest)
   POST /api/background {"url": "https://unsplash.com/photos/..."} | {"reset": true} -> wallpaper set from the page;
@@ -32,14 +35,20 @@ Sources (all read-only):
   dns      AdGuard  :3000/control/stats, /control/status  (GL sid sent as the Admin-Token cookie)
 """
 import base64
+import contextlib
 import copy
 import hashlib
+import http.cookiejar
+import importlib.util
 import json
 import logging
+import math
 import os
 import re
 import secrets
+import signal
 import socket
+import sqlite3
 import ssl
 import subprocess
 import threading
@@ -51,7 +60,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlsplit, urlunsplit
-from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener, urlopen
+from urllib.request import HTTPCookieProcessor, HTTPRedirectHandler, HTTPSHandler, Request, build_opener, urlopen
 
 import websocket
 import yaml
@@ -253,6 +262,143 @@ def normalize_alerts(raw):
     return result
 
 
+# ---------------------------------------------------------------------------------------------------
+# Cards: the router cards (internet, quality, dns) are part of the page; every other card is a plugin,
+# a folder cards/<type>/ with card.py (fetches the data here) and card.js (draws it on the page).
+# See cards/README.md for writing one.
+# ---------------------------------------------------------------------------------------------------
+BUILTIN_CARDS = ("internet", "quality", "dns")
+CARD_DIRS = (ROOT / "cards", CONFIG.parent / "cards")   # shipped with the image, then the user's own
+CARD_TYPE = re.compile(r"^[a-z][a-z0-9_-]{1,30}$")
+CARD_ID = re.compile(r"^[A-Za-z0-9_-]{1,40}$")   # part of metric names and URLs
+
+
+class CardPlugins:
+    """Card types found at start-up in CARD_DIRS (a plugin added later needs a restart)."""
+
+    def __init__(self):
+        self.types, self.problems = {}, []
+        for base in CARD_DIRS:
+            if not base.is_dir():
+                continue
+            for folder in sorted(base.iterdir()):
+                if (folder / "card.py").is_file():
+                    try:
+                        self._load(folder)
+                    except Exception as exc:  # one broken plugin must not stop the dashboard
+                        self.problems.append(f"cards/{folder.name}: {exc}")
+                        LOG.warning("card plugin %s not loaded: %s", folder, exc)
+        if self.types:
+            LOG.info("card plugins: %s", ", ".join(sorted(self.types)))
+
+    def _load(self, folder):
+        ctype = folder.name
+        if not CARD_TYPE.match(ctype) or ctype in BUILTIN_CARDS:
+            raise ValueError("the folder name must be lowercase letters, digits, - or _ and not a built-in card")
+        if not (folder / "card.js").is_file():
+            raise ValueError("card.js is missing")
+        spec = importlib.util.spec_from_file_location(f"card_{ctype.replace('-', '_')}", folder / "card.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if getattr(module, "TYPE", ctype) != ctype or not callable(getattr(module, "poll", None)):
+            raise ValueError("card.py needs TYPE equal to the folder name and a poll(ctx) function")
+        if ctype in self.types:
+            LOG.info("card plugin %s from %s replaces the built-in one", ctype, folder)
+        self.types[ctype] = {"module": module, "dir": folder, "title": str(getattr(module, "TITLE", ctype.title())),
+                             "interval": min(3600, max(2, int(getattr(module, "INTERVAL", 15)))),
+                             "wide": bool(getattr(module, "WIDE", False))}
+
+    def get(self, ctype):
+        if ctype not in self.types:
+            known = ", ".join(list(BUILTIN_CARDS) + sorted(self.types))
+            raise ValueError(f"unknown card type {ctype!r} (available: {known})")
+        return self.types[ctype]
+
+    def asset(self, ctype, name):
+        """card.js / card.css of a loaded plugin, or None."""
+        plugin = self.types.get(ctype)
+        file = plugin and plugin["dir"] / name
+        return file if file and name in ("card.js", "card.css") and file.is_file() else None
+
+
+PLUGINS = CardPlugins()
+
+
+def plugin_card(item, where, default_id, default_title=None):
+    """A plugin card from its config mapping: options checked by the plugin, secrets left as *_env names."""
+    ctype = str(item["type"])
+    plugin = PLUGINS.get(ctype)
+    options = {k: v for k, v in item.items() if k not in ("type", "id", "title", "wide", "link")}
+    check = getattr(plugin["module"], "check", None)
+    try:
+        options = check(dict(options)) if check else options
+        if not isinstance(options, dict):
+            raise ValueError("check() must return the options")
+    except ValueError as exc:
+        raise ValueError(f"{where} ({ctype}): {exc}") from None
+    except Exception as exc:  # e.g. float(None) for an option left empty: still a config error, not a crash
+        raise ValueError(f"{where} ({ctype}): invalid options ({type(exc).__name__}: {exc})") from None
+    card_id = str(item.get("id") or default_id)
+    if not CARD_ID.match(card_id):
+        raise ValueError(f"{where} ({ctype}): id may only have letters, digits, - and _ (up to 40)")
+    url = str(options.get("url") or "")
+    # link: what the title opens (the service's own page, e.g. https://proxmox.example.com), else url
+    link = str(item.get("link") or "")
+    if link and not link.startswith(("http://", "https://")):
+        raise ValueError(f"{where} ({ctype}): link must start with http:// or https://")
+    return {"id": card_id, "type": ctype, "builtin": False, "options": options,
+            "title": str(item.get("title") or default_title or plugin["title"]), "interval": plugin["interval"],
+            "wide": bool(item.get("wide", plugin["wide"])),
+            "url": link or (url if url.startswith(("http://", "https://")) else "")}
+
+
+BUILTIN_WIDGETS = ("router", "adguard")   # data the dashboard collects anyway
+
+
+def normalize_widget(raw, where, name, url, ids):
+    """widget: of a service: a live value on its tile and a details window. router / adguard are built in;
+    anything else is a card plugin with its options, polled even when it is not shown as a card."""
+    if raw in (None, False):
+        return None
+    item = {"type": raw} if isinstance(raw, str) else raw
+    if not isinstance(item, dict) or not item.get("type"):
+        raise ValueError(f"{where}: widget must be router, adguard or {{type: <plugin>, ...options}}")
+    if item["type"] in BUILTIN_WIDGETS:
+        return {"id": f"svc:{item['type']}", "type": item["type"], "builtin": True, "title": name}
+    base = "svc-" + (re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "service")
+    wid, n = base, 2
+    while wid in ids:
+        wid, n = f"{base}-{n}", n + 1
+    ids.add(wid)
+    card = plugin_card({**item, "id": wid}, f"{where} widget", wid, name)
+    card["url"] = url  # the tile's own address: the details window links there
+    return card
+
+
+def normalize_cards(raw):
+    """cards: in services.yaml; without it, the three router cards as before."""
+    if raw is None:
+        return [{"id": t, "type": t, "builtin": True} for t in BUILTIN_CARDS]
+    if not isinstance(raw, list):
+        raise ValueError("cards must be a list, e.g. [internet, quality, dns]")
+    cards, ids = [], set()
+    for i, item in enumerate(raw, 1):
+        where = f"cards #{i}"
+        item = {"type": item} if isinstance(item, str) else item
+        if not isinstance(item, dict) or not item.get("type"):
+            raise ValueError(f"{where}: give a card type, e.g. internet, or {{type: qbittorrent, url: ...}}")
+        ctype = str(item["type"])
+        if ctype in BUILTIN_CARDS:
+            card = {"id": ctype, "type": ctype, "builtin": True}
+        else:
+            card = plugin_card(item, where, ctype)
+        if card["id"] in ids:
+            raise ValueError(f"{where}: two cards with the id {card['id']!r}: give one of them id: <another name>")
+        ids.add(card["id"])
+        cards.append(card)
+    return cards
+
+
 def normalize_config(raw):
     """Validate services.yaml and fill defaults; raises ValueError with a readable location."""
     if not isinstance(raw, dict):
@@ -260,7 +406,7 @@ def normalize_config(raw):
     network = raw.get("network") or {}
     if not isinstance(network, dict):
         raise ValueError("network must be a mapping")
-    groups = []
+    groups, widgets, widget_ids = [], [], set()
     for gi, group in enumerate(raw.get("groups") or [], 1):
         if not isinstance(group, dict) or not group.get("name"):
             raise ValueError(f"groups #{gi}: 'name' is required")
@@ -283,7 +429,16 @@ def normalize_config(raw):
                 "icon_dark": (asset_url(service["icon_dark"], f"{where} ({name}): icon_dark", "icons")
                               if service.get("icon_dark") else ""),
                 "check": health_target(service, f"{where} ({name})", url),
+                "widget": None,
+                # CPU / RAM charts from a node card: container name (Docker) or guest id (Proxmox); default: found by name
+                "container": str(service.get("container") or ""),
+                "guest": str(service.get("guest") or ""),
             })
+            widget = normalize_widget(service.get("widget"), f"{where} ({name})", name, url, widget_ids)
+            if widget:
+                services[-1]["widget"] = {k: widget[k] for k in ("id", "type", "builtin")}
+                if not widget["builtin"]:
+                    widgets.append(widget)
         groups.append({"name": str(group["name"]), "services": services})
     return {
         "page": normalize_page(raw.get("page") or {}),
@@ -291,6 +446,9 @@ def normalize_config(raw):
         "groups": groups,
         "speedtest": {"schedule": normalize_schedule((raw.get("speedtest") or {}).get("schedule"))},
         "alerts": normalize_alerts(raw.get("alerts")),
+        "cards": normalize_cards(raw.get("cards")),
+        "widgets": widgets,
+        "tile_response_time": bool((raw.get("page") or {}).get("tile_response_time", True)),
     }
 
 
@@ -326,8 +484,9 @@ class SiteConfig:
                     self._config = normalize_config(yaml.safe_load(self.path.read_text(encoding="utf-8")))
                     self._error = None
                     LOG.info("loaded %s", self.path)
-                except (yaml.YAMLError, ValueError) as exc:
-                    self._error = f"{self.path.name}: {exc}"
+                except Exception as exc:  # YAML or validation errors, and anything unexpected: keep the last valid config
+                    known = isinstance(exc, (yaml.YAMLError, ValueError))
+                    self._error = f"{self.path.name}: {exc}" if known else f"{self.path.name}: {type(exc).__name__}: {exc}"
                     if self._error != previous:
                         LOG.warning("%s", self._error)
             return {"config": self._config, "error": self._error}
@@ -537,6 +696,13 @@ class State:
         with self._lock:
             return dict(self._sources.get(name) or {})
 
+    def prune(self, prefix, keep):
+        """Forget the sources named prefix + <id> whose id is not in keep (cards removed from the config)."""
+        with self._lock:
+            for name in [n for n in self._sources if n.startswith(prefix) and n[len(prefix):] not in keep]:
+                del self._sources[name]
+                self._logged.pop(name, None)
+
     def snapshot(self):
         with self._lock:
             return json.dumps({"now": time.time(), "interval": POLL_SECONDS, "sources": self._sources})
@@ -559,7 +725,17 @@ def poll_router(gl):
         "netnat_enabled": system.get("netnat_enabled"),
         "tzoffset": system.get("tzoffset"),  # router local time offset, e.g. "+0200" (follows DST)
         "network_quality_enabled": system.get("network_quality_enabled"),
+        "series": _router_metrics((system.get("cpu") or {}).get("temperature"), round((1 - free / total) * 100, 1) if total else None,
+                                  (system.get("load_average") or [None])[0]),
     }
+
+
+def _router_metrics(temp, mem, load):
+    """Records the router's temperature, memory and load; returns the series names for the page's charts."""
+    METRICS.record("router.temp", temp)
+    METRICS.record("router.mem", mem)
+    METRICS.record("router.load", load)
+    return {"temp": "router.temp", "mem": "router.mem", "load": "router.load"}
 
 
 def router_now():
@@ -572,105 +748,150 @@ def router_now():
 
 
 class History:
-    """Long-term history in data/history.json, shown in the page's History window.
+    """Long-term history in data/metrics.db (tables speedtests, traffic, events), shown in the History window.
 
-    - speedtests: one entry per finished test (time, download/upload Mbps, ping, bufferbloat);
+    - speedtests: one row per finished test (time, download/upload Mbps, ping, bufferbloat);
     - traffic: bytes received/sent per router-local day, summed from WAN counter deltas, so a
-      PPPoE reconnect (counters back to 0) does not lose the day;
-    - events: WAN down/up/reconnect and public IP changes.
-    Written at most once a minute (plus right after a new speed test or event).
+      PPPoE reconnect (counters back to 0) does not lose the day; kept in memory, written once a minute;
+    - events: WAN down/up/reconnect, public IP changes, VPN switches and new devices.
+    The data/history.json of older versions is imported once and renamed to history.json.migrated.
+    A database that cannot be written never fails the caller (a router poll, an alert): the loss is logged
+    by Metrics.tx(), traffic stays pending for the next flush.
     """
 
-    KEEP_TESTS, KEEP_DAYS, KEEP_EVENTS = 400, 400, 300
-    FLUSH_SECONDS = 60
+    KEEP_TESTS, KEEP_DAYS, KEEP_EVENTS = 1000, 800, 1000
 
-    def __init__(self, path):
-        self.path = path
+    def __init__(self, legacy_path):
         self._lock = threading.Lock()
-        self._dirty = False
-        self._flushed = 0.0
+        self._pending = {}          # router-local day -> [rx, tx] not written yet
+        self._last_ip = None
+        try:
+            self._migrate(legacy_path)
+            with METRICS.tx() as db:
+                row = db.execute("SELECT value FROM meta WHERE key = 'last_ip'").fetchone()
+            self._last_ip = row[0] if row else None
+        except sqlite3.Error:
+            pass
+
+    def _migrate(self, path):
+        if not path.is_file():
+            return
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            data = {}
         except (OSError, ValueError) as exc:
-            LOG.warning("history unreadable, starting empty: %s", exc)
-            data = {}
-        self._tests = list(data.get("speedtests") or [])
-        self._traffic = dict(data.get("traffic") or {})
-        self._events = list(data.get("events") or [])
-        self._last_ip = data.get("last_ip")
-
-    def _save(self, force=False):
-        """Caller holds the lock."""
-        if not self._dirty or (not force and time.monotonic() - self._flushed < self.FLUSH_SECONDS):
+            LOG.warning("old history unreadable, not imported: %s", exc)
             return
-        days = sorted(self._traffic)[-self.KEEP_DAYS:]
-        data = {"speedtests": self._tests[-self.KEEP_TESTS:], "traffic": {d: self._traffic[d] for d in days},
-                "events": self._events[-self.KEEP_EVENTS:], "last_ip": self._last_ip}
+        with METRICS.tx() as db:
+            db.executemany("INSERT OR IGNORE INTO speedtests VALUES (?, ?, ?, ?, ?)",
+                           [(t["t"], t.get("down"), t.get("up"), t.get("ping"), t.get("bufferbloat")) for t in data.get("speedtests") or []])
+            db.executemany("INSERT OR IGNORE INTO traffic VALUES (?, ?, ?)", [(d, v[0], v[1]) for d, v in (data.get("traffic") or {}).items()])
+            if not db.execute("SELECT 1 FROM events LIMIT 1").fetchone():
+                db.executemany("INSERT INTO events (t, kind, text) VALUES (?, ?, ?)",
+                               [(e["t"], e.get("kind"), e.get("text")) for e in sorted(data.get("events") or [], key=lambda e: e["t"])])
+            if data.get("last_ip"):
+                db.execute("INSERT OR IGNORE INTO meta VALUES ('last_ip', ?)", (data["last_ip"],))
+        path.replace(path.with_name(path.name + ".migrated"))
+        LOG.info("history imported from %s into metrics.db", path.name)
+
+    def flush(self):
+        """Write the pending traffic (called once a minute by Metrics.loop and at shutdown)."""
+        with self._lock:
+            pending, self._pending = self._pending, {}
+        if not pending:
+            return
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data), encoding="utf-8")
-            tmp.replace(self.path)
-            self._dirty, self._flushed = False, time.monotonic()
-        except OSError as exc:
-            LOG.warning("history not saved: %s", exc)
+            with METRICS.tx() as db:
+                db.executemany("INSERT INTO traffic (day, rx, tx) VALUES (?, ?, ?) "
+                               "ON CONFLICT(day) DO UPDATE SET rx = rx + excluded.rx, tx = tx + excluded.tx",
+                               [(d, v[0], v[1]) for d, v in pending.items()])
+                keep_from = (datetime.now() - timedelta(days=self.KEEP_DAYS)).strftime("%Y-%m-%d")
+                db.execute("DELETE FROM traffic WHERE day < ?", (keep_from,))
+        except sqlite3.Error:
+            with self._lock:  # not written: back into pending for the next try
+                for day, (rx, tx) in pending.items():
+                    total = self._pending.setdefault(day, [0, 0])
+                    total[0] += rx
+                    total[1] += tx
 
     def add_traffic(self, rx, tx):
         day = router_now().strftime("%Y-%m-%d")
         with self._lock:
-            total = self._traffic.setdefault(day, [0, 0])
+            total = self._pending.setdefault(day, [0, 0])
             total[0] += rx
             total[1] += tx
-            self._dirty = True
-            self._save()
 
     def add_speedtest(self, finished_at, test):
-        entry = {"t": round(finished_at), "down": round(float(test.get("download") or 0), 1),
-                 "up": round(float(test.get("upload") or 0), 1), "ping": test.get("ping"),
-                 "bufferbloat": test.get("bufferbloat")}
-        with self._lock:
-            self._tests.append(entry)
-            self._dirty = True
-            self._save(force=True)
+        row = (round(finished_at), round(float(test.get("download") or 0), 1), round(float(test.get("upload") or 0), 1),
+               test.get("ping"), test.get("bufferbloat"))
+        try:
+            with METRICS.tx() as db:
+                db.execute("INSERT OR REPLACE INTO speedtests VALUES (?, ?, ?, ?, ?)", row)
+                db.execute("DELETE FROM speedtests WHERE t NOT IN (SELECT t FROM speedtests ORDER BY t DESC LIMIT ?)", (self.KEEP_TESTS,))
+        except sqlite3.Error:
+            pass
+
+    @staticmethod
+    def _test(row):
+        return {"t": row[0], "down": row[1], "up": row[2], "ping": row[3], "bufferbloat": row[4]}
 
     def last_speedtest(self):
-        with self._lock:
-            return dict(self._tests[-1]) if self._tests else None
+        try:
+            with METRICS.tx() as db:
+                row = db.execute("SELECT * FROM speedtests ORDER BY t DESC LIMIT 1").fetchone()
+        except sqlite3.Error:
+            return None
+        return self._test(row) if row else None
 
     def recent(self, kinds, seconds):
         """Newest event of one of these kinds from the last `seconds`, or None."""
-        since = time.time() - seconds
-        with self._lock:
-            return next((dict(e) for e in reversed(self._events) if e["t"] >= since and e.get("kind") in kinds), None)
+        try:
+            with METRICS.tx() as db:
+                row = db.execute(f"SELECT t, kind, text FROM events WHERE t >= ? AND kind IN ({','.join('?' * len(kinds))}) "
+                                 "ORDER BY t DESC, id DESC LIMIT 1", (time.time() - seconds, *kinds)).fetchone()
+        except sqlite3.Error:
+            return None
+        return {"t": row[0], "kind": row[1], "text": row[2]} if row else None
 
     def event(self, kind, text):
-        with self._lock:
-            self._events.append({"t": round(time.time()), "kind": kind, "text": text})
-            self._dirty = True
-            self._save(force=True)
         LOG.info("history event: %s", text)
+        try:
+            with METRICS.tx() as db:
+                db.execute("INSERT INTO events (t, kind, text) VALUES (?, ?, ?)", (round(time.time()), kind, text))
+                db.execute("DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT ?)", (self.KEEP_EVENTS,))
+        except sqlite3.Error:
+            pass
 
     def observe_ip(self, ip):
         if not ip:
             return
         with self._lock:
             previous, self._last_ip = self._last_ip, ip
-            if previous == ip:
-                return
-            self._dirty = True
+        if previous == ip:
+            return
+        try:
+            with METRICS.tx() as db:
+                db.execute("INSERT OR REPLACE INTO meta VALUES ('last_ip', ?)", (ip,))
+        except sqlite3.Error:
+            pass
         if previous:
             self.event("ip", f"Public IP changed: {previous} → {ip}")
-        else:
-            with self._lock:
-                self._save(force=True)
 
     def snapshot(self):
+        tests, traffic, events = [], {}, []
+        try:
+            with METRICS.tx() as db:
+                tests = [self._test(r) for r in db.execute("SELECT * FROM (SELECT * FROM speedtests ORDER BY t DESC LIMIT 120) ORDER BY t")]
+                traffic = {d: [rx, tx] for d, rx, tx in db.execute("SELECT * FROM traffic ORDER BY day DESC LIMIT 62")}
+                events = [{"t": t, "kind": k, "text": x} for t, k, x in db.execute("SELECT t, kind, text FROM events ORDER BY t DESC, id DESC LIMIT 60")]
+        except sqlite3.Error:
+            pass
         with self._lock:
-            days = sorted(self._traffic)[-62:]
-            return {"speedtests": self._tests[-120:], "traffic": [[d, *self._traffic[d]] for d in days],
-                    "events": self._events[-60:][::-1], "today": router_now().strftime("%Y-%m-%d")}
+            for d, (rx, tx) in self._pending.items():  # bytes not written yet
+                total = traffic.setdefault(d, [0, 0])
+                total[0] += rx
+                total[1] += tx
+        return {"speedtests": tests, "traffic": [[d, *traffic[d]] for d in sorted(traffic)[-62:]],
+                "events": events, "today": router_now().strftime("%Y-%m-%d")}
 
 
 class WanCounters:
@@ -696,6 +917,8 @@ class WanCounters:
         if prev and prev[0] == device and rx is not None and rx >= prev[1] and tx >= prev[2]:
             elapsed = now - prev[3]
             rx_rate, tx_rate = (rx - prev[1]) / elapsed, (tx - prev[2]) / elapsed
+            METRICS.record("wan.rx", max(0, rx_rate))
+            METRICS.record("wan.tx", max(0, tx_rate))
         # Daily totals: a counter that went backwards restarted from 0 (reconnect), so count from 0
         if prev and rx is not None and tx is not None and prev[1] is not None:
             same = prev[0] == device and rx >= prev[1] and tx >= prev[2]
@@ -778,7 +1001,8 @@ def compute_alerts(state):
 
     [{"id", "level": "warning"|"critical", "text"}]; thresholds come from alerts: in services.yaml.
     """
-    cfg = (SITE.get()["config"] or {}).get("alerts") or normalize_alerts({})
+    site = SITE.get()["config"] or {}
+    cfg = site.get("alerts") or normalize_alerts({})
     alerts = []
 
     def check(key, value, text):
@@ -830,6 +1054,7 @@ def compute_alerts(state):
         check("dns_avg_ms", d.get("avg_ms"), f"Slow DNS: {d.get('avg_ms')} ms average")
         for up in d.get("upstreams") or []:
             check("dns_upstream_ms", up.get("avg_ms"), f"Slow DNS upstream {up['name'].removesuffix(':53')}: {up.get('avg_ms')} ms")
+    alerts += card_alerts(state, (site.get("cards") or []) + (site.get("widgets") or []))
     alerts.sort(key=lambda a: a["level"] != "critical")
     return alerts
 
@@ -1102,6 +1327,400 @@ class SpeedtestTimes:
 
 
 STATE = State()
+
+
+class Metrics:
+    """Time series in data/metrics.db (SQLite, from the standard library), so charts survive restarts.
+
+    record(series, value) keeps the average per 30-second slot in memory; flush() writes them once a minute
+    in one transaction. Raw 30-second points are kept for a day; compact() folds older ones into 5-minute
+    averages (with min and max) that are kept for RETENTION_DAYS. histories() serves charts: one value per
+    `step` seconds over the last `seconds`, oldest first, None where nothing was recorded.
+
+    The database is optional: if it cannot be opened or written (read-only or full volume, damaged file) the
+    dashboard keeps working from the in-memory buffer (the last BUFFER_SECONDS) and retries on the next flush.
+    One connection is shared by all threads behind a lock; every use goes through tx().
+    """
+
+    SLOT = 30
+    ROLLUP = 300
+    RAW_SECONDS = 86400
+    RETENTION_DAYS = 30
+    BUFFER_SECONDS = 2 * 3600   # unsaved points kept in memory while the database is unavailable
+    NAME = re.compile(r"^[A-Za-z0-9_.:/@-]{1,160}$")
+    SCHEMA = (
+        "CREATE TABLE IF NOT EXISTS raw (series TEXT NOT NULL, ts INTEGER NOT NULL, v REAL, PRIMARY KEY (series, ts)) WITHOUT ROWID",
+        "CREATE TABLE IF NOT EXISTS rollup (series TEXT NOT NULL, ts INTEGER NOT NULL, v REAL, lo REAL, hi REAL, "
+        "PRIMARY KEY (series, ts)) WITHOUT ROWID",
+        # History window (class History)
+        "CREATE TABLE IF NOT EXISTS speedtests (t INTEGER PRIMARY KEY, down REAL, up REAL, ping REAL, bufferbloat TEXT)",
+        "CREATE TABLE IF NOT EXISTS traffic (day TEXT PRIMARY KEY, rx INTEGER NOT NULL, tx INTEGER NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, kind TEXT, text TEXT)",
+        "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)",
+    )
+
+    def __init__(self, path):
+        self.path = path
+        self._lock = threading.Lock()       # the in-memory buffer
+        self._dblock = threading.RLock()    # the connection
+        self._conn = None
+        self._buffer = {}   # (series, slot) -> [sum, count]
+        self._complained = None
+        try:
+            with self.tx():
+                pass
+        except sqlite3.Error:
+            pass  # reported by tx(); retried on the next flush
+
+    @contextlib.contextmanager
+    def tx(self):
+        """The shared connection inside one transaction; sqlite3.Error for callers to handle (logged once)."""
+        with self._dblock:
+            try:
+                if self._conn is None:
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
+                    conn = sqlite3.connect(self.path, timeout=10, check_same_thread=False)
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute("PRAGMA synchronous=NORMAL")
+                    for statement in self.SCHEMA:
+                        conn.execute(statement)
+                    conn.commit()
+                    self._conn = conn
+                yield self._conn
+                self._conn.commit()
+                if self._complained:
+                    LOG.info("metrics database is working again")
+                    self._complained = None
+            except (sqlite3.Error, OSError) as exc:
+                if self._conn is not None:
+                    try:
+                        self._conn.rollback()
+                        self._conn.close()
+                    except sqlite3.Error:
+                        pass
+                    self._conn = None  # reconnect next time
+                if self._complained != str(exc):
+                    self._complained = str(exc)
+                    LOG.warning("metrics database unavailable, keeping recent data in memory: %s", exc)
+                raise exc if isinstance(exc, sqlite3.Error) else sqlite3.OperationalError(str(exc)) from exc
+
+    def record(self, series, value, ts=None):
+        if value is None or not self.NAME.match(series):
+            return
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(value):
+            return
+        slot = int((ts or time.time()) // self.SLOT * self.SLOT)
+        with self._lock:
+            acc = self._buffer.setdefault((series, slot), [0.0, 0])
+            acc[0] += value
+            acc[1] += 1
+
+    def flush(self):
+        """Write the buffered points; on failure they go back into the buffer for the next try."""
+        with self._lock:
+            writing, self._buffer = self._buffer, {}
+        if not writing:
+            return
+        try:
+            with self.tx() as db:
+                db.executemany("INSERT OR REPLACE INTO raw (series, ts, v) VALUES (?, ?, ?)",
+                               [(s, t, a[0] / a[1]) for (s, t), a in writing.items()])
+        except sqlite3.Error:
+            oldest = time.time() - self.BUFFER_SECONDS
+            with self._lock:
+                for key, acc in writing.items():
+                    if key[1] >= oldest:
+                        kept = self._buffer.setdefault(key, [0.0, 0])
+                        kept[0] += acc[0]
+                        kept[1] += acc[1]
+
+    def compact(self):
+        """Raw points older than a day → 5-minute averages; drop what is older than the retention."""
+        now = time.time()
+        edge = int((now - self.RAW_SECONDS) // self.ROLLUP * self.ROLLUP)
+        with self.tx() as db:
+            db.execute(f"INSERT OR REPLACE INTO rollup (series, ts, v, lo, hi) SELECT series, ts / {self.ROLLUP} * {self.ROLLUP} AS b, "
+                       "avg(v), min(v), max(v) FROM raw WHERE ts < ? GROUP BY series, b", (edge,))
+            db.execute("DELETE FROM raw WHERE ts < ?", (edge,))
+            db.execute("DELETE FROM rollup WHERE ts < ?", (int(now - self.RETENTION_DAYS * 86400),))
+
+    def loop(self):
+        last_compact = 0
+        while True:
+            time.sleep(60)
+            try:
+                self.flush()
+                HISTORY.flush()
+                if time.time() - last_compact > 3600:
+                    self.compact()
+                    last_compact = time.time()
+            except Exception as exc:  # a full disk must not stop the dashboard
+                LOG.warning("metrics not saved: %s", exc)
+
+    def histories(self, names, seconds=1800, step=None):
+        """{name: one value per `step` seconds over the last `seconds`, oldest first; None where there is no data}.
+        One query for all the names."""
+        names = [n for n in dict.fromkeys(names) if self.NAME.match(n)]
+        step = max(self.SLOT, int(step or self.SLOT))
+        now = time.time()
+        start = int((now - seconds) // step * step) + step
+        n = max(1, int((now - start) // step) + 1)
+        buckets = {name: {} for name in names}
+        rows = []
+        if names:
+            marks = ",".join("?" * len(names))
+            try:
+                with self.tx() as db:
+                    if now - start > self.RAW_SECONDS:  # older than a day comes from the 5-minute table
+                        rows += db.execute(f"SELECT series, ts, v FROM rollup WHERE series IN ({marks}) AND ts >= ?", (*names, start)).fetchall()
+                    rows += db.execute(f"SELECT series, ts, v FROM raw WHERE series IN ({marks}) AND ts >= ?", (*names, start)).fetchall()
+            except sqlite3.Error:
+                pass  # the buffer still has the recent points
+        wanted = set(names)
+        with self._lock:
+            rows += [(s, t, a[0] / a[1]) for (s, t), a in self._buffer.items() if s in wanted and t >= start]
+        for series, ts, v in rows:
+            if v is not None:
+                b = buckets[series].setdefault((ts - start) // step, [0.0, 0])
+                b[0] += v
+                b[1] += 1
+        return {name: [(b[i][0] / b[i][1]) if i in b else None for i in range(n)] for name, b in buckets.items()}
+
+    def history(self, series, seconds=1800, step=None):
+        return self.histories([series], seconds, step).get(series) or []
+
+    def averages(self, names, seconds):
+        """{name: mean over the last `seconds`} with every 5 minutes weighing the same (e.g. availability from a
+        0/1 series); names without data are left out. One query for all the names."""
+        names = [n for n in dict.fromkeys(names) if self.NAME.match(n)]
+        if not names:
+            return {}
+        marks, since = ",".join("?" * len(names)), int(time.time() - seconds)
+        try:
+            with self.tx() as db:
+                return dict(db.execute(
+                    f"SELECT series, avg(v) FROM (SELECT series, v FROM rollup WHERE series IN ({marks}) AND ts >= ? "
+                    f"UNION ALL SELECT series, avg(v) FROM raw WHERE series IN ({marks}) AND ts >= ? GROUP BY series, ts / {self.ROLLUP}) "
+                    "GROUP BY series", (*names, since, *names, since)).fetchall())
+        except sqlite3.Error:
+            return {}
+
+
+METRICS = Metrics(ROOT / "data" / "metrics.db")
+RANGES = {"30m": (1800, 30), "2h": (7200, 60), "10h": (36000, 300), "24h": (86400, 600), "7d": (7 * 86400, 3600), "30d": (30 * 86400, 14400)}
+
+
+
+class CardResponse:
+    def __init__(self, status, headers, body):
+        self.status, self.headers, self.body = status, headers, body
+
+    def json(self):
+        return json.loads(self.body or b"null")
+
+    def text(self):
+        return self.body.decode("utf-8", errors="replace")
+
+
+class CardContext:
+    """What a card's poll(ctx) gets: its options, secrets from the environment, HTTP requests that keep
+    cookies between polls, `memory` (a dict that also survives between polls) and the metrics store."""
+
+    MAX_BODY = 8 * 1024 * 1024
+    PAUSE_FIRST, PAUSE_MAX = 300, 6 * 3600
+
+    def __init__(self, card):
+        self.id, self.options, self.memory = card["id"], card["options"], {}
+        self.lock = threading.Lock()          # poll() and details() of one card never run at the same time
+        self._paused_until, self._pause_reason, self._pauses = 0.0, "", 0
+        context = ssl.create_default_context()
+        if self.options.get("tls_verify") is False:  # self-signed LAN services; the card asked for it
+            context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
+        self.cookies = http.cookiejar.CookieJar()
+        self._opener = build_opener(HTTPCookieProcessor(self.cookies), HTTPSHandler(context=context), WebRedirect)
+
+    def record(self, name, value):
+        """Store a metric of this card (kept 30 days, survives restarts); its series is card.<id>.<name>."""
+        METRICS.record(f"card.{self.id}.{name}", value)
+
+    def history(self, name, seconds=1800, step=None):
+        """The last `seconds` of a metric recorded with record(): one value per step (30 s), oldest first."""
+        return METRICS.history(f"card.{self.id}.{name}", seconds, step)
+
+    def histories(self, names, seconds=1800, step=None):
+        """history() for several metrics with one database query: {name: [values]}."""
+        full = {f"card.{self.id}.{n}": n for n in names}
+        return {full[k]: v for k, v in METRICS.histories(list(full), seconds, step).items()}
+
+    def pause(self, reason):
+        """Stop polling this card for a while (5 minutes, doubling up to 6 hours while it keeps happening) and
+        show `reason` on it. For refused logins: retrying every few seconds gets the dashboard banned."""
+        seconds = min(self.PAUSE_MAX, self.PAUSE_FIRST * 2 ** self._pauses)
+        self._pauses += 1
+        self._paused_until, self._pause_reason = time.monotonic() + seconds, str(reason)
+
+    def paused(self):
+        """The reason while a pause() lasts, else None."""
+        left = self._paused_until - time.monotonic()
+        return f"{self._pause_reason} (next try in {_duration(left)})" if left > 0 else None
+
+    def series(self, name):
+        """The full series name of a metric, for charts that load longer ranges from /api/metrics."""
+        return f"card.{self.id}.{name}"
+
+    def secret(self, name):
+        """The value of the environment variable named by the option <name>_env, or None without that option."""
+        env = self.options.get(f"{name}_env")
+        if not env:
+            return None
+        value = os.environ.get(str(env), "")
+        if not value:
+            raise ValueError(f"the environment variable {env} is empty or not set")
+        return value
+
+    def url(self, path=""):
+        return str(self.options.get("url", "")).rstrip("/") + path
+
+    def request(self, method, url, params=None, data=None, json_body=None, headers=None, timeout=8):
+        """Any status comes back as a CardResponse; only network errors raise."""
+        if urlsplit(url).scheme not in ("http", "https"):
+            raise ValueError("only http(s) URLs")
+        if params:
+            url += ("&" if "?" in url else "?") + urlencode(params)
+        headers = {"User-Agent": "glinet-dashboard", **(headers or {})}
+        body = None
+        if json_body is not None:
+            body, headers["Content-Type"] = json.dumps(json_body).encode(), "application/json"
+        elif data is not None:
+            body = urlencode(data).encode() if isinstance(data, dict) else data
+            headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+        req = Request(url, data=body, headers=headers, method=method)
+        try:
+            with self._opener.open(req, timeout=timeout) as resp:
+                return CardResponse(resp.status, resp.headers, resp.read(self.MAX_BODY))
+        except HTTPError as exc:
+            return CardResponse(exc.code, exc.headers, exc.read(64 * 1024))
+
+    def get_json(self, url, **kw):
+        resp = self.request("GET", url, **kw)
+        if resp.status >= 400:
+            raise RuntimeError(f"HTTP {resp.status} from {urlsplit(url).netloc}")
+        return resp.json()
+
+
+class CardRunner:
+    """Polls every plugin card and service widget of the current config on its own schedule, a few at a time."""
+
+    def __init__(self, state):
+        self.state = state
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="card")
+        self._next, self._running, self._contexts, self._ids = {}, set(), {}, None
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def cards():
+        config = SITE.get()["config"] or {}
+        return [c for c in config.get("cards", []) + config.get("widgets", []) if not c["builtin"]]
+
+    def loop(self):
+        while True:
+            try:
+                self._tick()
+            except Exception as exc:  # never let the scheduler thread die
+                LOG.warning("card scheduler: %s: %s", type(exc).__name__, exc)
+            time.sleep(1)
+
+    def _tick(self):
+        now, cards = time.monotonic(), self.cards()
+        ids = {c["id"] for c in cards}
+        if ids != self._ids:  # cards removed from the config: forget their data and sessions
+            self._ids = ids
+            self.state.prune("card:", ids)
+            with self._lock:
+                for gone in set(self._contexts) - ids:
+                    del self._contexts[gone]
+                    self._next.pop(gone, None)
+        for card in cards:
+            with self._lock:
+                if card["id"] in self._running or now < self._next.get(card["id"], 0):
+                    continue
+                self._running.add(card["id"])
+                self._next[card["id"]] = now + card["interval"]
+            self._pool.submit(self._poll, card)
+
+    def _context(self, card):
+        with self._lock:
+            ctx = self._contexts.get(card["id"])
+            if ctx is None or ctx.options != card["options"]:  # new card or changed options: a fresh session
+                ctx = self._contexts[card["id"]] = CardContext(card)
+            return ctx
+
+    def _poll(self, card):
+        name = f"card:{card['id']}"
+        try:
+            ctx = self._context(card)
+            reason = ctx.paused()
+            if reason:
+                raise RuntimeError(reason)
+            with ctx.lock:
+                data = PLUGINS.get(card["type"])["module"].poll(ctx)
+            json.dumps(data, allow_nan=False)  # must fit /api/status: no sets, dates, NaN ...
+            ctx._pauses = 0
+            self.state.ok(name, data)
+        except Exception as exc:  # whatever a plugin raises ends up as the card's error
+            self.state.fail(name, exc)
+        finally:
+            with self._lock:
+                self._running.discard(card["id"])
+
+    def details(self, card_id):
+        """The card's data plus what its plugin's details(ctx, data) adds for the details window, on demand:
+        {"data", "updated", "error"}; None for an unknown card."""
+        card = next((c for c in self.cards() if c["id"] == card_id), None)
+        if card is None:
+            return None
+        src = self.state.source(f"card:{card_id}")
+        data, hook = src.get("data"), getattr(PLUGINS.get(card["type"])["module"], "details", None)
+        if hook and data is not None:
+            ctx = self._context(card)
+            try:
+                with ctx.lock:
+                    extra = hook(ctx, data) or {}
+                json.dumps(extra, allow_nan=False)
+                data = {**data, **extra}
+            except Exception as exc:
+                LOG.warning("card %s details: %s: %s", card_id, type(exc).__name__, exc)
+                src["error"] = src.get("error") or f"details: {exc}"
+        return {"data": data, "updated": src.get("updated"), "error": src.get("error")}
+
+
+CARDS = CardRunner(STATE)
+
+
+def card_alerts(state, cards):
+    """A card with no data for a while is a warning; a plugin's alerts(data, options) add their own."""
+    alerts = []
+    for card in cards:
+        if card["builtin"]:
+            continue
+        src = state.source(f"card:{card['id']}")
+        stale = not src.get("updated") or time.time() - src["updated"] > card["interval"] * 3 + 30
+        if src.get("error") and stale:
+            alerts.append({"id": f"card:{card['id']}", "level": "warning", "text": f"{card['title']}: {src['error']}"})
+            continue
+        hook = getattr(PLUGINS.types.get(card["type"], {}).get("module"), "alerts", None)
+        if hook and src.get("data") is not None:
+            try:
+                for a in hook(src["data"], card["options"]) or []:
+                    alerts.append({"id": f"card:{card['id']}:{a.get('id', '')}", "text": f"{card['title']}: {a['text']}",
+                                   "level": a.get("level") if a.get("level") in ("warning", "critical") else "warning"})
+            except Exception as exc:
+                LOG.warning("card %s alerts: %s", card["id"], exc)
+    return alerts
 GL = GLSession()
 LUCI = LuciSession()
 SPEEDTEST = Speedtest(GL, STATE)
@@ -1326,9 +1945,22 @@ class HealthChecks:
 
     TIMEOUT = 3
 
+    AVAILABILITY_SECONDS = 600   # how often the 24 h / 7 d / 30 d availability is recomputed
+    WINDOWS = {"24h": 86400, "7d": 7 * 86400, "30d": 30 * 86400}
+
     def __init__(self, state):
         self._state = state
         self._last = {}
+        self._availability, self._availability_at = {}, 0.0
+
+    def availability(self, targets):
+        """{target: {"24h": share of time up, "7d": ..., "30d": ...}}, cached for AVAILABILITY_SECONDS."""
+        if time.monotonic() - self._availability_at > self.AVAILABILITY_SECONDS or set(targets) - set(self._availability):
+            names = {f"svc.{t}.up": t for t in targets}
+            per_window = {key: METRICS.averages(list(names), seconds) for key, seconds in self.WINDOWS.items()}
+            self._availability = {t: {key: per_window[key].get(n) for key in self.WINDOWS} for n, t in names.items()}
+            self._availability_at = time.monotonic()
+        return self._availability
 
     @classmethod
     def probe(cls, target):
@@ -1358,7 +1990,13 @@ class HealthChecks:
             since = previous["since"] if previous and previous["up"] == up else now
             if previous and previous["up"] != up:
                 LOG.info("service %s is %s%s", target, "up" if up else "down", "" if up else f" ({error})")
-            current[target] = {"up": up, "ms": ms, "error": error, "since": since}
+            METRICS.record(f"svc.{target}.up", 1 if up else 0)
+            if up:
+                METRICS.record(f"svc.{target}.ms", ms)
+            current[target] = {"up": up, "ms": ms, "error": error, "since": since, "series": f"svc.{target}.ms"}
+        availability = self.availability(targets)
+        for target, result in current.items():
+            result["availability"] = availability.get(target) or {}
         self._last = current
         self._state.ok("health", current)
 
@@ -2125,6 +2763,21 @@ def site_config():
         page["background"] = background
     elif configured:
         page["background"] = {**configured, "source": "config"}
+    # Cards for the page: no plugin options (they may name secrets), plus where each plugin's page code is
+    cards = result["config"]["cards"]
+    widgets = result["config"].pop("widgets", [])
+    for card in cards:
+        card.pop("options", None)
+    result["config"]["widget_info"] = {w["id"]: {"title": w["title"], "interval": w["interval"], "url": w["url"]} for w in widgets}
+    assets = {}
+    for ctype in {c["type"] for c in cards + widgets if not c["builtin"]}:
+        for name, key in (("card.js", "js"), ("card.css", "css")):
+            file = PLUGINS.asset(ctype, name)
+            if file:
+                assets.setdefault(ctype, {})[key] = f"cards/{ctype}/{name}?v={int(file.stat().st_mtime)}"
+    result["config"]["card_assets"] = assets
+    if PLUGINS.problems:
+        result["error"] = "; ".join(filter(None, [result.get("error"), *PLUGINS.problems]))
     return result
 
 
@@ -2231,6 +2884,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, STATE.snapshot().encode(), "application/json")
         elif path == "/api/config":
             self._json(200, site_config())
+        elif path == "/api/metrics":
+            self._metrics()
+        elif path == "/api/card":
+            card_id = (parse_qs(urlsplit(self.path).query).get("id") or [""])[0]
+            result = CARDS.details(card_id) if CARD_ID.match(card_id) else None
+            if result is None:
+                self.send_error(404)
+            else:
+                self._json(200, result)
         elif path == "/api/bookmarks":
             self._json(200, BOOKMARKS.get())
         elif path.startswith("/media/favicons/"):
@@ -2256,10 +2918,29 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, HISTORY.snapshot())
         elif path.startswith("/assets/"):
             self._asset(path[len("/assets/"):])
+        elif path.startswith("/cards/"):
+            parts = path.split("/")
+            file = PLUGINS.asset(parts[2], parts[3]) if len(parts) == 4 else None
+            if file:
+                mime = "text/javascript; charset=utf-8" if file.suffix == ".js" else "text/css; charset=utf-8"
+                self._send(200, file.read_bytes(), mime, cache="no-cache")
+            else:
+                self.send_error(404)
         elif path in ("/", "/index.html"):
             self._send(200, INDEX.read_bytes(), "text/html; charset=utf-8")
         else:
             self.send_error(404)
+
+    def _metrics(self):
+        """?series=a,b&range=30m|24h|7d|30d → {"step", "range", "series": {name: [values, oldest first]}}."""
+        query = parse_qs(urlsplit(self.path).query)
+        rng = (query.get("range") or ["24h"])[0]
+        names = [n for n in ",".join(query.get("series") or []).split(",") if n][:12]
+        if rng not in RANGES or not names or not all(Metrics.NAME.match(n) for n in names):
+            self._json(400, {"error": f"use ?series=<name>[,<name>]&range={'|'.join(RANGES)}"})
+            return
+        seconds, step = RANGES[rng]
+        self._json(200, {"range": rng, "step": step, "series": METRICS.histories(names, seconds, step)})
 
     def _read_json(self, limit=4096):
         """JSON body of a POST; None unless it was sent as application/json.
@@ -2413,5 +3094,12 @@ if __name__ == "__main__":
     threading.Thread(target=VPN_EXIT.loop, name="vpn-exit", daemon=True).start()
     threading.Thread(target=BOOKMARKS.loop, name="bookmarks", daemon=True).start()
     threading.Thread(target=ROTATION.loop, name="wallpaper-rotation", daemon=True).start()
+    threading.Thread(target=CARDS.loop, name="cards", daemon=True).start()
+    threading.Thread(target=METRICS.loop, name="metrics", daemon=True).start()
+    def shutdown(signum, frame):  # docker stop: keep the last minute of metrics and traffic
+        METRICS.flush()
+        HISTORY.flush()
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, shutdown)
     LOG.info("serving on :%d, polling %s every %d s", PORT, GL_HOST, POLL_SECONDS)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

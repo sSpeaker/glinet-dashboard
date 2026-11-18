@@ -8,6 +8,7 @@ RUN apk add --no-cache openssl \
 
 WORKDIR /app
 COPY collector.py index.html ./
+COPY cards/ ./cards/
 # Example configuration as the default; docker-compose mounts ./config over it (edits need no rebuild)
 COPY config.example/ ./config/
 # Writable cache (quote of the day); docker-compose mounts a named volume here

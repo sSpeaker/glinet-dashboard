@@ -1,0 +1,46 @@
+# node_exporter as a CasaOS app, for the dashboard's "node" card (host CPU, memory, disks, network)
+# plus the Docker containers written by docker-textfile into /var/lib/node_exporter/textfile.
+# CasaOS: App Store -> Custom Install -> Import -> paste this file -> Install. Metrics: http://<host>:9100/metrics
+name: node-exporter
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: node-exporter
+    restart: unless-stopped
+    network_mode: host          # the host's network interfaces, not the container's
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --collector.textfile.directory=/textfile
+    volumes:
+      - type: bind
+        source: /
+        target: /host
+        read_only: true
+        bind:
+          propagation: rslave
+      - type: bind
+        source: /var/lib/node_exporter/textfile
+        target: /textfile
+        read_only: true
+    security_opt:
+      - no-new-privileges:true
+    x-casaos:
+      ports:
+        - container: "9100"
+          description:
+            en_US: Prometheus metrics (host network)
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: node-exporter
+  author: Prometheus
+  category: Utilities
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/prometheus.png
+  tagline:
+    en_US: Host metrics for Prometheus and glinet-dashboard
+  title:
+    en_US: Node Exporter
+  index: /metrics
+  port_map: "9100"
