@@ -287,11 +287,14 @@ def alerts(d, o):
     elif d["ecc"]["correctable"]:
         out.append({"id": "ecc", "level": "warning", "text": f"{d['ecc']['correctable']:.0f} corrected memory errors"})
     for c in d.get("containers") or []:
-        if c["health"] == "unhealthy":
+        # Docker keeps the last health status of a stopped container: only a running one can be unhealthy.
+        # always / unless-stopped containers are restarted by Docker after a crash, so one that stays stopped was
+        # stopped on purpose (CasaOS's stop button, docker stop); only on-failure gives up after its retries.
+        if c["up"] and c["health"] == "unhealthy":
             out.append({"id": f"ct:{c['name']}", "level": "warning", "text": f"container {c['name']} is unhealthy"})
         elif c.get("restarting"):
             out.append({"id": f"ct:{c['name']}", "level": "warning", "text": f"container {c['name']} keeps restarting"})
-        elif not c["up"] and c["exit"] != 0 and c["policy"] in ("always", "unless-stopped", "on-failure"):
+        elif not c["up"] and c["exit"] != 0 and c["policy"] == "on-failure":
             out.append({"id": f"ct:{c['name']}", "level": "warning", "text": f"container {c['name']} stopped with exit code {c['exit']}"})
     for g in d["guests"] or []:
         if g["onboot"] and not g["up"]:

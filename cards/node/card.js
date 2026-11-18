@@ -4,8 +4,9 @@
   const pct = (used, total) => (total ? Math.round(used / total * 100) : null);
   const hours = n => (n == null ? null : `${Math.round(n).toLocaleString("en-GB")} h`);
 
-  // Containers: running and healthy = fine; unhealthy, restarting or crashed (with a restart policy) = attention
-  const ctBad = c => c.health === "unhealthy" || c.restarting || (!c.up && c.exit !== 0 && c.policy !== "no");
+  // Containers: running and healthy = fine; unhealthy while running, restarting, or given up by an on-failure
+  // policy = attention (the same rules as alerts() in card.py). Stopped on purpose = plain "exited".
+  const ctBad = c => (c.up && c.health === "unhealthy") || c.restarting || (!c.up && c.exit !== 0 && c.policy === "on-failure");
 
   Cards.register("node", {
     render(body, d, h) {
@@ -83,7 +84,7 @@
       if (d.containers) {
         section("Containers", h.table(["Name", "Image", "State", "Health", "CPU", "CPU, 30 min", "RAM", "Up for", "Restarts"], d.containers.map(c => [
           c.name, h.cut(c.image, 40), ctBad(c) ? h.warn(c.state === "exited" ? `exited (${c.exit})` : c.state) : c.state,
-          c.health === "none" ? "–" : c.health === "unhealthy" ? h.warn(c.health) : c.health,
+          c.health === "none" || !c.up ? "–" : c.health === "unhealthy" ? h.warn(c.health) : c.health,
           c.up ? `${(c.cpu * 100).toFixed(1)} %` : "–",
           c.up && trail(`ct.${c.name}.cpu`) ? h.spark(trail(`ct.${c.name}.cpu`), { unit: "%", key: "s1" }) : "–",
           c.up ? h.bytes(c.mem).join(" ") : "–", c.up ? h.duration(c.uptime) : "–", c.restarts,
